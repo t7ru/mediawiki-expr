@@ -470,18 +470,21 @@ export function transpileExpr(expr) {
  * Evaluates MediaWiki #expr syntax.
  * @param {string} expr
  * @param {object} [options]
- * @param {boolean} [options.mediawikiErrors=true]  If false, returns NaN on error instead
+ * @param {boolean} [options.mediawikiErrors=true] If false, returns NaN on error instead
  */
 export function evaluateExpr(expr, { mediawikiErrors = true } = {}) {
-	const code = transpileExpr(expr);
-
 	try {
+		const code = transpileExpr(expr);
 		const result = new Function(`return ${code}`)();
 		return result;
 	} catch (e) {
 		if (!mediawikiErrors) {
 			return NaN;
 		}
-		return `<strong class="error">Expression error: ${e.message}</strong>`;
+		let msg = e.message;
+		if (!msg.startsWith("Expression error:")) {
+			msg = `Expression error: ${msg}`;
+		}
+		return `<strong class="error">${msg}</strong>`;
 	}
 }
