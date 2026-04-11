@@ -1,0 +1,24 @@
+{
+	"name": "mediawiki-expr",
+	"version": "0.0.1",
+	"description": "Transpile and evaluate MediaWiki `#expr` syntax into JavaScript.URLs",
+	"main": "index.js",
+	"types": "index.d.ts",
+	"type": "module",
+	"exports": {
+		".": {
+			"types": "./index.d.ts",
+			"default": "./index.js"
+		}
+	},
+	"keywords": [
+		"mediawiki",
+		"expression"
+	],
+	"author": "t7ru",
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/t7ru/mediawiki-expr.git"
+	}
+}
