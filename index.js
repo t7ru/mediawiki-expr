@@ -178,7 +178,7 @@ function tokenize(expr) {
 			}
 			const lower = word.toLowerCase();
 			if (!WORD_OPERATORS.has(lower)) {
-				throw new Error(`Unrecognised word: ${word}`);
+				throw new Error(`Unrecognized word "${word}"`);
 			}
 			tokens.push({ type: "word", value: lower });
 			continue;
@@ -197,7 +197,7 @@ function tokenize(expr) {
 			tokens.push({ type: "paren", value: next() });
 			continue;
 		}
-		throw new Error(`Unrecognised punctuation: ${ch}`);
+		throw new Error(`Unrecognized punctuation character "${ch}"`);
 	}
 	tokens.push({ type: "eof", value: "" });
 	return tokens;
@@ -211,7 +211,7 @@ class Parser {
 	parse() {
 		const node = this.parseExpression(0);
 		if (this.current().type !== "eof") {
-			throw new Error(`Unexpected token: ${this.current().value}`);
+			throw new Error(`Unexpected token "${this.current().value}"`);
 		}
 		return node;
 	}
@@ -404,28 +404,53 @@ function emit(node) {
 function buildHelpers() {
 	return `
 const __mwBool = (x) => x !== 0;
+
 const __mwTrunc = (x) => x < 0 ? Math.ceil(x) : Math.floor(x);
-const __mwDiv = (a, b) => b === 0 ? NaN : a / b;
+
+const __mwDiv = (a, b) => {
+  if (b === 0) throw new Error("Division by zero.");
+  return a / b;
+};
+
 const __mwMod = (a, b) => {
   const left = __mwTrunc(a);
   const right = __mwTrunc(b);
-  return right === 0 ? NaN : left % right;
+  if (right === 0) throw new Error("Division by zero.");
+  return left % right;
 };
-const __mwFmod = (a, b) => b === 0 ? NaN : a % b;
-const __mwLn = (x) => x <= 0 ? NaN : Math.log(x);
-const __mwSqrt = (x) => x < 0 ? NaN : Math.sqrt(x);
-const __mwAsin = (x) => (x < -1 || x > 1) ? NaN : Math.asin(x);
-const __mwAcos = (x) => (x < -1 || x > 1) ? NaN : Math.acos(x);
+
+const __mwFmod = (a, b) => {
+  if (b === 0) throw new Error("Division by zero.");
+  return a % b;
+};
+
+const __mwLn = (x) => {
+  if (x <= 0) throw new Error("Invalid argument for ln: less than or equal to 0.");
+  return Math.log(x);
+};
+
+const __mwSqrt = (x) => {
+  if (x < 0) throw new Error("In sqrt: Result is not a number.");
+  return Math.sqrt(x);
+};
+
+const __mwAsin = (x) => {
+  if (x < -1 || x > 1) throw new Error("Invalid argument for asin: less than -1 or greater than 1.");
+  return Math.asin(x);
+};
+
+const __mwAcos = (x) => {
+  if (x < -1 || x > 1) throw new Error("Invalid argument for acos: less than -1 or greater than 1.");
+  return Math.acos(x);
+};
+
 const __mwRound = (value, digitsRaw) => {
   const digits = __mwTrunc(digitsRaw);
   const factor = Math.pow(10, digits);
   if (!Number.isFinite(factor) || factor === 0) return value;
   const scaled = value * factor;
   if (!Number.isFinite(scaled)) return value;
-  const rounded =
-    scaled < 0
-      ? -Math.round(Math.abs(scaled))
-      : Math.round(scaled);
+  const rounded = scaled < 0 ? -Math.round(Math.abs(scaled)) : Math.round(scaled);
   const result = rounded / factor;
   return Number.isFinite(result) ? result : value;
 };
@@ -442,9 +467,21 @@ export function transpileExpr(expr) {
 }
 
 /**
- * Evaluates MediaWiki #expr syntax and returns the numeric result.
+ * Evaluates MediaWiki #expr syntax.
+ * @param {string} expr
+ * @param {object} [options]
+ * @param {boolean} [options.mediawikiErrors=true]  If false, returns NaN on error instead
  */
-export function evaluateExpr(expr) {
+export function evaluateExpr(expr, { mediawikiErrors = true } = {}) {
 	const code = transpileExpr(expr);
-	return new Function(`return ${code}`)();
+
+	try {
+		const result = new Function(`return ${code}`)();
+		return result;
+	} catch (e) {
+		if (!mediawikiErrors) {
+			return NaN;
+		}
+		return `<strong class="error">Expression error: ${e.message}</strong>`;
+	}
 }
