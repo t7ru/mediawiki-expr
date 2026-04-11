@@ -159,7 +159,13 @@ function tokenize(expr) {
 		}
 		if (/[0-9.]/.test(ch)) {
 			let num = "";
-			while (i < input.length && /[0-9.]/.test(peek())) {
+			let dots = 0;
+			while (i < input.length) {
+				const c = peek();
+				if (c === ".") {
+					if (++dots > 1) break;
+				}
+				if (!/[0-9.]/.test(c)) break;
 				num += next();
 			}
 			tokens.push({ type: "number", value: num });
