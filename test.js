@@ -2,17 +2,24 @@ import { evaluateExpr } from "./index.js";
 
 let hasFailures = false;
 
-// MediaWiki #expr uses floats, so we need fuzzy matching for transcendental funcs
-// and potential floating point inaccuracies like fmod
 function approxEqual(actual, expected, epsilon = 1e-9) {
 	if (Number.isNaN(expected)) return Number.isNaN(actual);
 	if (!Number.isFinite(expected)) return actual === expected;
 	return Math.abs(actual - expected) < epsilon;
 }
 
-function check(expr, expected) {
+function check(expr, expected, options = {}) {
 	try {
-		const actual = evaluateExpr(expr);
+		const actual = evaluateExpr(expr, options);
+		if (
+			typeof actual === "string" &&
+			actual.startsWith('<strong class="error">')
+		) {
+			console.error(`[Fail] ${expr} -> expected number but got error`);
+			console.error(` - Actual: ${actual}\n`);
+			hasFailures = true;
+			return;
+		}
 		if (approxEqual(actual, expected)) {
 			console.log(`[Pass] ${expr} === ${actual}`);
 		} else {
@@ -22,17 +29,40 @@ function check(expr, expected) {
 			hasFailures = true;
 		}
 	} catch (error) {
-		console.error(`[Fail] ${expr} threw an error: ${error.message}\n`);
+		console.error(
+			`[Fail] ${expr} threw unexpected JS error: ${error.message}\n`,
+		);
 		hasFailures = true;
 	}
 }
 
-console.log("=== MediaWiki #expr Tests ===\n");
+function checkError(expr, expectedErrorSubstring, options = {}) {
+	try {
+		const actual = evaluateExpr(expr, options);
+		if (typeof actual === "string" && actual.includes(expectedErrorSubstring)) {
+			console.log(
+				`[Pass] ${expr} -> error contains "${expectedErrorSubstring}"`,
+			);
+		} else {
+			console.error(`[Fail] ${expr}`);
+			console.error(` - Expected error containing: ${expectedErrorSubstring}`);
+			console.error(` - Got: ${actual}\n`);
+			hasFailures = true;
+		}
+	} catch (error) {
+		console.error(
+			`[Fail] ${expr} threw unexpected JS error: ${error.message}\n`,
+		);
+		hasFailures = true;
+	}
+}
 
 const tests = [
 	// numbers
 	["123456789", 123456789],
 	["123456789.0123456789", 123456789.0123456789],
+	[".5", 0.5],
+	["5.", 5],
 
 	// unary
 	["+1", 1],
@@ -107,9 +137,9 @@ const tests = [
 	["3 or 4", 1],
 	["0 or 0", 0],
 
-	// precedence and complex
+	// precedence and grouping
 	["2+3*4", 14],
-	["1.234 round 2 - 1", 1.2], // +,- > round. 2-1 = 1, then round 1
+	["1.234 round 2 - 1", 1.2], // +,- > round  -> 1.234 round (2-1) = 1.234 round 1 = 1.2
 	["1 and 2=1", 0], // = > and
 	["1 or 1 and 0", 1], // and > or
 	["(2+3)*4", 20],
@@ -118,13 +148,44 @@ const tests = [
 	["3 * 4 mod 10 * 10", 20], // ltr 3*4=12, 12 mod 10=2, 2*10=20
 ];
 
+console.log("-> Success tests (mediawikiErrors = true by default)");
 for (const [expr, expected] of tests) {
 	check(expr, expected);
 }
+
+// error tests
+console.log(
+	'\n-> Error tests (should return MediaWiki <strong class="error">...)',
+);
+checkError("1/0", "Division by zero.");
+checkError("5 mod 0", "Division by zero.");
+checkError("5 fmod 0", "Division by zero.");
+checkError("ln 0", "Invalid argument for ln: less than or equal to 0.");
+checkError("ln -1", "Invalid argument for ln: less than or equal to 0.");
+checkError("sqrt -1", "In sqrt: Result is not a number.");
+checkError(
+	"asin 2",
+	"Invalid argument for asin: less than -1 or greater than 1.",
+);
+checkError(
+	"acos 2",
+	"Invalid argument for acos: less than -1 or greater than 1.",
+);
+checkError("foo", 'Unrecognized word "foo"');
+checkError("1 + , 2", 'Unrecognized punctuation character ","');
+checkError("(2+3", "Unclosed bracket");
+checkError("2+3)", 'Unexpected token ")"');
+
+// NaN mode
+console.log("\n-> NaN tests (mediawikiErrors = false)");
+check("1/0", NaN, { mediawikiErrors: false });
+check("ln 0", NaN, { mediawikiErrors: false });
+check("sqrt -1", NaN, { mediawikiErrors: false });
+check("foo", NaN, { mediawikiErrors: false });
 
 if (hasFailures) {
 	console.error("\nSome tests failed!");
 	process.exit(1);
 }
 
-console.log("\nAll tests completed!");
+console.log("\nAll tests passed!");
