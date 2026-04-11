@@ -83,55 +83,42 @@ const PRECEDENCE = {
 function mwNot(v) {
 	return `(__mwBool(${v}) ? 0 : 1)`;
 }
-
 function mwAnd(a, b) {
 	return `((__mwBool(${a}) && __mwBool(${b})) ? 1 : 0)`;
 }
-
 function mwOr(a, b) {
 	return `((__mwBool(${a}) || __mwBool(${b})) ? 1 : 0)`;
 }
-
 function mwEq(a, b) {
 	return `(((${a}) == (${b})) ? 1 : 0)`;
 }
-
 function mwNe(a, b) {
 	return `(((${a}) != (${b})) ? 1 : 0)`;
 }
-
 function mwLt(a, b) {
 	return `(((${a}) < (${b})) ? 1 : 0)`;
 }
-
 function mwGt(a, b) {
 	return `(((${a}) > (${b})) ? 1 : 0)`;
 }
-
 function mwLe(a, b) {
 	return `(((${a}) <= (${b})) ? 1 : 0)`;
 }
-
 function mwGe(a, b) {
 	return `(((${a}) >= (${b})) ? 1 : 0)`;
 }
-
 function mwRound(a, b) {
 	return `__mwRound((${a}), (${b}))`;
 }
-
 function mwMod(a, b) {
 	return `__mwMod((${a}), (${b}))`;
 }
-
 function mwFmod(a, b) {
 	return `__mwFmod((${a}), (${b}))`;
 }
-
 function mwDiv(a, b) {
 	return `__mwDiv((${a}), (${b}))`;
 }
-
 function mwExp10(a, b) {
 	return `((${a}) * Math.pow(10, (${b})))`;
 }
