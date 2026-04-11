@@ -34,11 +34,13 @@ console.log(value);
 
 Returns a string of JavaScript code that evaluates the expression.
 
-### `evaluateExpr(expr: string): number`
+### `evaluateExpr(expr: string, options?: { mediawikiErrors?: boolean }): number | string`
 
 - `expr` (string) - A MediaWiki `#expr` expression
+- `options` (object, optional)
+  - `mediawikiErrors` (boolean) - If `true` (default), returns a MediaWiki HTML error string on evaluation failure. If `false`, returns `NaN`.
 
-Transpiles and evaluates the expression and returns the numeric result.
+Transpiles and evaluates the expression.
 
 ## Notes
 
