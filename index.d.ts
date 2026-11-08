@@ -6,6 +6,11 @@ export interface EvaluateOptions {
 	 * @default true
 	 */
 	mediawikiErrors?: boolean;
+	/**
+	 * Called with the plain error message before the error value is returned.
+	 * e.g. `"Division by zero."`.
+	 */
+	onError?: (message: string) => void;
 }
 
 /**

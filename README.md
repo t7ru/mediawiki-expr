@@ -24,11 +24,12 @@ console.log(value); // 8.389056098930649
 
 ## API
 
-### `evaluateExpr(expr: string, options?: { mediawikiErrors?: boolean }): number | bigint | string`
+### `evaluateExpr(expr: string, options?: { mediawikiErrors?: boolean, onError?: (message: string) => void }): number | bigint | string`
 
 - `expr` (string) - A MediaWiki `#expr` expression
 - `options` (object, optional)
   - `mediawikiErrors` (boolean) - If `true` (default), returns a MediaWiki HTML error string. Syntax errors include the `Expression error:` prefix. Division, `ln`, `asin`, `acos`, and `sqrt` errors do not. If `false`, returns `NaN`.
+  - `onError` (function) - Called with the plain error message (`1/0` -> `Division by zero.`), in either mode.
 
 Returns:
 

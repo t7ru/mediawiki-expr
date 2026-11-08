@@ -320,6 +320,25 @@ checkError("ln 0", NaN, { mediawikiErrors: false });
 checkError("sqrt -1", NaN, { mediawikiErrors: false });
 checkError("foo", NaN, { mediawikiErrors: false });
 
+// onError
+for (const [expr, options, expected] of [
+	["1/0", { mediawikiErrors: false }, ["Division by zero."]],
+	["foo", {}, ['Expression error: Unrecognized word "foo".']],
+	["1+2", {}, []],
+	["", { mediawikiErrors: false }, []],
+]) {
+	const messages = [];
+	evaluateExpr(expr, { ...options, onError: (m) => messages.push(m) });
+	if (JSON.stringify(messages) === JSON.stringify(expected)) {
+		console.log(`[Pass] ${expr} onError -> ${JSON.stringify(messages)}`);
+	} else {
+		console.error(`[Fail] ${expr} onError`);
+		console.error(` - Expected: ${JSON.stringify(expected)}`);
+		console.error(` - Got:      ${JSON.stringify(messages)}\n`);
+		hasFailures = true;
+	}
+}
+
 // empty stays ""
 check("", "", { mediawikiErrors: false });
 check("()", "", { mediawikiErrors: false });

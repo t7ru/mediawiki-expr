@@ -464,13 +464,15 @@ function doExpression(expr) {
 	return normalizeResult(vals[0]);
 }
 
-export function evaluateExpr(expr, { mediawikiErrors = true } = {}) {
+export function evaluateExpr(expr, { mediawikiErrors = true, onError } = {}) {
 	try {
 		return doExpression(expr);
 	} catch (e) {
+		const message = String(e.message);
+		onError?.(message);
 		if (!mediawikiErrors) {
 			return NaN;
 		}
-		return `<strong class="error">${htmlspecialchars(String(e.message))}</strong>`;
+		return `<strong class="error">${htmlspecialchars(message)}</strong>`;
 	}
 }
