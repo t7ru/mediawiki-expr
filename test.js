@@ -48,6 +48,16 @@ function check(expr, expected, options = {}, epsilon = 0) {
 			console.error(` - Actual:   ${String(actual)} (${typeof actual})\n`);
 			hasFailures = true;
 		}
+
+		// transpile output is tree-shaken
+		// thus, check it on every case
+		const viaFn = new Function(`return ${transpileExpr(expr)}`)();
+		if (!Object.is(viaFn, actual)) {
+			console.error(`[Fail] ${expr} transpile mismatch`);
+			console.error(` - transpile+Function: ${String(viaFn)}`);
+			console.error(` - evaluateExpr:       ${String(actual)}\n`);
+			hasFailures = true;
+		}
 	} catch (error) {
 		console.error(
 			`[Fail] ${expr} threw unexpected JS error: ${error.message}\n`,
