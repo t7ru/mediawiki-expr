@@ -11,7 +11,7 @@
 			"default": "./index.js"
 		}
 	},
-	"files": ["index.js", "index.d.ts", "runtime.js"],
+	"files": ["index.js", "index.d.ts"],
 	"engines": {
 		"node": ">=20"
 	},

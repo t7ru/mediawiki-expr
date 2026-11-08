@@ -16,7 +16,7 @@ import {
 	phpNeg,
 	phpCmp,
 	runtimeSource,
-} from "./runtime.js";
+} from "./index.js";
 
 let passed = 0;
 let failed = 0;
