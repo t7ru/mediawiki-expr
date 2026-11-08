@@ -15,15 +15,15 @@ import { transpileExpr, evaluateExpr } from "mediawiki-expr";
 
 // Transpile to JavaScript
 const jsCode = transpileExpr("1 + 2 * 3");
-console.log(jsCode); // Outputs: (()=>{...;return ((1) + ((2) * (3)));})()
+console.log(jsCode); // (()=>{...;return normalizeResult(phpAdd(1,phpMul(2,3)));})()
 
 // Evaluate
-const result = evaluateExpr("round(3.14159, 2)");
-console.log(result);
+const result = evaluateExpr("3.14159 round 2");
+console.log(result); // 3.14
 
 // For the more 'nuanced' expression
 const value = evaluateExpr("sin(pi / 2) + e ^ 2");
-console.log(value);
+console.log(value); // 8.389056098930649
 ```
 
 ## API
@@ -34,14 +34,18 @@ console.log(value);
 
 Returns a string of JavaScript code that evaluates the expression.
 
-### `evaluateExpr(expr: string, options?: { mediawikiErrors?: boolean }): number | string`
+### `evaluateExpr(expr: string, options?: { mediawikiErrors?: boolean }): number | bigint | string`
 
 - `expr` (string) - A MediaWiki `#expr` expression
 - `options` (object, optional)
-  - `mediawikiErrors` (boolean) - If `true` (default), returns a MediaWiki HTML error string on evaluation failure. If `false`, returns `NaN`.
+  - `mediawikiErrors` (boolean) - If `true` (default), returns a MediaWiki HTML error string. Syntax errors include the `Expression error:` prefix. Division, `ln`, `asin`, `acos`, and `sqrt` errors do not. If `false`, returns `NaN`.
 
-Transpiles and evaluates the expression.
+Returns:
+
+- `""`, `()`, and whitespace return `""`.
+- A PHP int outside the safe-integer range returns a `bigint` (`trunc 1e20` -> `7766279631452241920n`).
+- Other successes return a `number`, including `-0`, `NaN`, and `Infinity`.
 
 ## Notes
 
-- May not match edge cases perfectly because PHP is well, different.
+- `cos` can differ from PHP by one unit in the last place due to the platform libm.
