@@ -4,21 +4,8 @@ export function phpParseNumber(lexeme) {
 }
 
 export function phpToInt(d) {
-	if (!Number.isFinite(d)) return 0n;
-	const buf = phpToInt.buf ??= new DataView(new ArrayBuffer(8));
-	buf.setFloat64(0, d);
-	const bits = buf.getBigUint64(0);
-	const sign = bits >> 63n;
-	const exp = Number((bits >> 52n) & 0x7ffn);
-	const frac = bits & 0xfffffffffffffn;
-	if (exp < 1023) return 0n;
-	const trueExp = exp - 1023;
-	let mag = (1n << 52n) | frac;
-	const shift = trueExp - 52;
-	if (shift >= 64) return 0n;
-	if (shift >= 0) mag <<= BigInt(shift);
-	else mag >>= BigInt(-shift);
-	return BigInt.asIntN(64, sign ? -mag : mag);
+	// php's (int) cast wraps out-of-range floats mod 2^64 instead of saturating
+	return Number.isFinite(d) ? BigInt.asIntN(64, BigInt(Math.trunc(d))) : 0n;
 }
 
 export function phpAsFloat(v) {
