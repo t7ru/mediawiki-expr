@@ -15,7 +15,6 @@ import {
 	phpPow,
 	phpNeg,
 	phpCmp,
-	runtimeSource,
 } from "./index.js";
 
 let passed = 0;
@@ -317,19 +316,6 @@ assertSame(phpCmp(NaN, NaN, "<>"), 1, "cmp NaN<>NaN");
 assertSame(phpCmp(NaN, 1, "<"), 0, "cmp NaN<1");
 assertSame(phpCmp(NaN, 1, "<="), 0, "cmp NaN<=1");
 assertSame(phpCmp(1, NaN, ">="), 0, "cmp 1>=NaN");
-
-// runtimeSource
-const embedded = new Function(runtimeSource() + "; return phpToInt(1e20);")();
-assertSame(embedded, 7766279631452241920n, "runtimeSource phpToInt(1e20)");
-
-const embeddedRound = new Function(
-	runtimeSource() + "; return phpRound(1.005, 2);",
-)();
-assertSame(embeddedRound, 1.01, "runtimeSource phpRound");
-
-const shaken = runtimeSource("phpRound(1, 2)");
-assertSame(shaken.includes("function clampRoundPlaces("), true, "runtimeSource pulls transitive deps");
-assertSame(shaken.includes("function phpAdd("), false, "runtimeSource drops unused helpers");
 
 if (failed) {
 	console.error(`${passed} passed, ${failed} failed`);

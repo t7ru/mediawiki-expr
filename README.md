@@ -1,6 +1,6 @@
 # mediawiki-expr
 
-Transpile and evaluate MediaWiki `#expr` syntax into JavaScript.
+Evaluate MediaWiki `#expr` syntax in JavaScript.
 
 ## Install
 
@@ -11,11 +11,7 @@ npm i mediawiki-expr
 ## Usage
 
 ```js
-import { transpileExpr, evaluateExpr } from "mediawiki-expr";
-
-// Transpile to JavaScript
-const jsCode = transpileExpr("1 + 2 * 3");
-console.log(jsCode); // (()=>{ function phpAsFloat(v) {...} ... return phpAdd(1,phpMul(2,3)); })()
+import { evaluateExpr } from "mediawiki-expr";
 
 // Evaluate
 const result = evaluateExpr("3.14159 round 2");
@@ -27,15 +23,6 @@ console.log(value); // 8.389056098930649
 ```
 
 ## API
-
-### `transpileExpr(expr: string): string`
-
-- `expr` (string) - A MediaWiki `#expr` expression, e.g. `"1 + 2 * 3"`
-
-Returns:
-
-- A self-contained JavaScript IIFE string.
-- Throws an `Error` on invalid expressions (`1/0` -> `Division by zero.`).
 
 ### `evaluateExpr(expr: string, options?: { mediawikiErrors?: boolean }): number | bigint | string`
 

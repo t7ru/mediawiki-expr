@@ -1,4 +1,4 @@
-import { evaluateExpr, transpileExpr } from "./index.js";
+import { evaluateExpr } from "./index.js";
 
 let hasFailures = false;
 
@@ -49,15 +49,6 @@ function check(expr, expected, options = {}, epsilon = 0) {
 			hasFailures = true;
 		}
 
-		// transpile output is tree-shaken
-		// thus, check it on every case
-		const viaFn = new Function(`return ${transpileExpr(expr)}`)();
-		if (!Object.is(viaFn, actual)) {
-			console.error(`[Fail] ${expr} transpile mismatch`);
-			console.error(` - transpile+Function: ${String(viaFn)}`);
-			console.error(` - evaluateExpr:       ${String(actual)}\n`);
-			hasFailures = true;
-		}
 	} catch (error) {
 		console.error(
 			`[Fail] ${expr} threw unexpected JS error: ${error.message}\n`,
@@ -333,63 +324,6 @@ checkError("foo", NaN, { mediawikiErrors: false });
 check("", "", { mediawikiErrors: false });
 check("()", "", { mediawikiErrors: false });
 check("   ", "", { mediawikiErrors: false });
-
-// transpile
-console.log("\n-> transpileExpr tests");
-try {
-	const code = transpileExpr("1 + 2 * 3");
-	if (typeof code === "string") {
-		console.log(`[Pass] transpileExpr("1 + 2 * 3") returns string`);
-	} else {
-		console.error(`[Fail] transpileExpr("1 + 2 * 3") did not return a string`);
-		hasFailures = true;
-	}
-} catch (error) {
-	console.error(
-		`[Fail] transpileExpr("1 + 2 * 3") threw: ${error.message}\n`,
-	);
-	hasFailures = true;
-}
-
-try {
-	const t = transpileExpr("1+2");
-	const viaFn = new Function("return " + t)();
-	const viaEval = evaluateExpr("1+2");
-	if (Object.is(viaFn, viaEval)) {
-		console.log(`[Pass] new Function(transpileExpr("1+2")) === evaluateExpr("1+2")`);
-	} else {
-		console.error(`[Fail] transpile/evaluate mismatch for "1+2"`);
-		console.error(` - transpile+Function: ${viaFn}`);
-		console.error(` - evaluateExpr:       ${viaEval}\n`);
-		hasFailures = true;
-	}
-} catch (error) {
-	console.error(
-		`[Fail] transpileExpr("1+2") / Function path threw: ${error.message}\n`,
-	);
-	hasFailures = true;
-}
-
-try {
-	const t = transpileExpr("trunc 1.2");
-	const viaFn = new Function("return " + t)();
-	const viaEval = evaluateExpr("trunc 1.2");
-	if (Object.is(viaFn, viaEval) || viaFn === viaEval) {
-		console.log(
-			`[Pass] new Function(transpileExpr("trunc 1.2")) === evaluateExpr("trunc 1.2")`,
-		);
-	} else {
-		console.error(`[Fail] transpile/evaluate mismatch for "trunc 1.2"`);
-		console.error(` - transpile+Function: ${viaFn}`);
-		console.error(` - evaluateExpr:       ${viaEval}\n`);
-		hasFailures = true;
-	}
-} catch (error) {
-	console.error(
-		`[Fail] transpileExpr("trunc 1.2") / Function path threw: ${error.message}\n`,
-	);
-	hasFailures = true;
-}
 
 if (hasFailures) {
 	console.error("\nSome tests failed!");

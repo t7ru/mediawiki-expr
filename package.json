@@ -1,7 +1,7 @@
 {
 	"name": "mediawiki-expr",
 	"version": "0.1.0",
-	"description": "Transpile and evaluate MediaWiki `#expr` syntax into JavaScript.",
+	"description": "Evaluate MediaWiki `#expr` syntax in JavaScript.",
 	"main": "index.js",
 	"types": "index.d.ts",
 	"type": "module",

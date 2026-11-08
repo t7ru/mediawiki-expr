@@ -9,15 +9,6 @@ export interface EvaluateOptions {
 }
 
 /**
- * Transpiles MediaWiki #expr syntax into an IIFE.
- * Only the runtime helpers the expression needs are inlined.
- *
- * @throws {Error} On syntax or evaluation errors (e.g. `1/0`)
- * with the same message `evaluateExpr` would wrap in HTML.
- */
-export declare function transpileExpr(expr: string): string;
-
-/**
  * Success is a JS `number` (including `-0`, `NaN`, `Infinity`)
  * or a `bigint` when the PHP int is outside the JS safe-integer range
  * (e.g. `trunc 1e20` -> `7766279631452241920n`),

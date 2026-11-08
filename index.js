@@ -8,6 +8,10 @@ export function phpToInt(d) {
 	return Number.isFinite(d) ? BigInt.asIntN(64, BigInt(Math.trunc(d))) : 0n;
 }
 
+function fitsLong(r) {
+	return r >= -0x8000000000000000n && r <= 0x7fffffffffffffffn;
+}
+
 export function phpAsFloat(v) {
 	return typeof v === "bigint" ? Number(v) : v;
 }
@@ -23,6 +27,11 @@ export function clampRoundPlaces(digits) {
 	return Number(x);
 }
 
+const POWERS = [
+	1e0, 1e1, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9, 1e10, 1e11,
+	1e12, 1e13, 1e14, 1e15, 1e16, 1e17, 1e18, 1e19, 1e20, 1e21, 1e22,
+];
+
 export function phpRound(value, digits) {
 	let places = clampRoundPlaces(digits);
 	if (typeof value === "bigint") {
@@ -34,11 +43,7 @@ export function phpRound(value, digits) {
 	if (places < -2147483647) places = -2147483647;
 
 	const absPlaces = places < 0 ? -places : places;
-	const powers = [
-		1e0, 1e1, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9, 1e10, 1e11,
-		1e12, 1e13, 1e14, 1e15, 1e16, 1e17, 1e18, 1e19, 1e20, 1e21, 1e22,
-	];
-	const exponent = absPlaces > 22 ? Math.pow(10, absPlaces) : powers[absPlaces];
+	const exponent = absPlaces > 22 ? Math.pow(10, absPlaces) : POWERS[absPlaces];
 
 	let tmp;
 	let tmp2;
@@ -72,7 +77,7 @@ export function phpRound(value, digits) {
 export function phpAdd(a, b) {
 	if (typeof a === "bigint" && typeof b === "bigint") {
 		const r = a + b;
-		if (r >= -0x8000000000000000n && r <= 0x7fffffffffffffffn) return r;
+		if (fitsLong(r)) return r;
 		return Number(a) + Number(b);
 	}
 	return phpAsFloat(a) + phpAsFloat(b);
@@ -81,7 +86,7 @@ export function phpAdd(a, b) {
 export function phpSub(a, b) {
 	if (typeof a === "bigint" && typeof b === "bigint") {
 		const r = a - b;
-		if (r >= -0x8000000000000000n && r <= 0x7fffffffffffffffn) return r;
+		if (fitsLong(r)) return r;
 		return Number(a) - Number(b);
 	}
 	return phpAsFloat(a) - phpAsFloat(b);
@@ -90,7 +95,7 @@ export function phpSub(a, b) {
 export function phpMul(a, b) {
 	if (typeof a === "bigint" && typeof b === "bigint") {
 		const r = a * b;
-		if (r >= -0x8000000000000000n && r <= 0x7fffffffffffffffn) return r;
+		if (fitsLong(r)) return r;
 		return Number(a) * Number(b);
 	}
 	return phpAsFloat(a) * phpAsFloat(b);
@@ -101,7 +106,7 @@ export function phpDiv(a, b) {
 	if (typeof a === "bigint" && typeof b === "bigint") {
 		if (a % b === 0n) {
 			const q = a / b;
-			if (q >= -0x8000000000000000n && q <= 0x7fffffffffffffffn) return q;
+			if (fitsLong(q)) return q;
 		}
 		return Number(a) / Number(b);
 	}
@@ -129,15 +134,13 @@ export function phpPow(a, b) {
 		if (a === 1n) return 1n;
 		if (a === -1n) return (b & 1n) === 0n ? 1n : -1n;
 
-		const LONG_MIN = -0x8000000000000000n;
-		const LONG_MAX = 0x7fffffffffffffffn;
 		let result = 1n;
 		let base = a;
 		let exp = b;
 		while (exp > 0n) {
 			if (exp & 1n) {
 				const next = result * base;
-				if (next < LONG_MIN || next > LONG_MAX) {
+				if (!fitsLong(next)) {
 					return Math.pow(Number(a), Number(b));
 				}
 				result = next;
@@ -145,7 +148,7 @@ export function phpPow(a, b) {
 			exp >>= 1n;
 			if (exp > 0n) {
 				const next = base * base;
-				if (next < LONG_MIN || next > LONG_MAX) {
+				if (!fitsLong(next)) {
 					return Math.pow(Number(a), Number(b));
 				}
 				base = next;
@@ -197,11 +200,8 @@ export function phpSqrt(x) {
 }
 
 export function phpNeg(a) {
-	if (typeof a === "bigint") {
-		if (a === -0x8000000000000000n) return 9223372036854775808;
-		return -a;
-	}
-	return -a;
+	// -PHP_INT_MIN overflows to float
+	return a === -0x8000000000000000n ? 9223372036854775808 : -a;
 }
 
 export function phpCmp(a, b, op) {
@@ -235,95 +235,23 @@ function normalizeResult(v) {
 		: v;
 }
 
-const HELPERS = new Map(
-	[
-		phpParseNumber,
-		phpToInt,
-		phpAsFloat,
-		phpTruthy,
-		clampRoundPlaces,
-		phpRound,
-		phpAdd,
-		phpSub,
-		phpMul,
-		phpDiv,
-		phpMod,
-		phpFmod,
-		phpPow,
-		phpNeg,
-		phpNot,
-		phpAnd,
-		phpOr,
-		phpLn,
-		phpAsin,
-		phpAcos,
-		phpSqrt,
-		phpCmp,
-		normalizeResult,
-	].map((fn) => [fn.name, fn.toString()]),
-);
-
-// textual match meaning helpers must call each other by plain name
-function helperRefs(src) {
-	const refs = new Set();
-	for (const [id] of src.matchAll(/\b[A-Za-z_$][\w$]*/g)) {
-		if (HELPERS.has(id)) refs.add(id);
-	}
-	return refs;
-}
-
-const DEPS = new Map([...HELPERS].map(([name, src]) => [name, helperRefs(src)]));
-
-function usedHelpers(code) {
-	const used = new Set();
-	const visit = (name) => {
-		if (used.has(name)) return;
-		used.add(name);
-		DEPS.get(name).forEach(visit);
-	};
-	helperRefs(code).forEach(visit);
-	return used;
-}
-
-export function runtimeSource(code) {
-	if (code === undefined) return [...HELPERS.values()].join("\n");
-	const used = usedHelpers(code);
-	return [...HELPERS].filter(([n]) => used.has(n)).map(([, s]) => s).join("\n");
-}
-
 const MAX_STACK_SIZE = 100;
 
 const call = (p, f) => ({
-	p,                                              // p = precedence
-	n: f.length,                                    // n = arity
-	f,                                              // f = value fn
-	c: (...args) => `${f.name}(${args.join(",")})`, // c = code fn
+	p,           // p = precedence
+	n: f.length, // n = arity
+	f,           // f = operation
 });
 const math = (name) => {
 	const fn = Math[name];
-	return {
-		p: 9,
-		n: 1,
-		f: (x) => fn(phpAsFloat(x)),
-		c: (x) => `Math.${name}(phpAsFloat(${x}))`,
-	};
+	return call(9, (x) => fn(phpAsFloat(x)));
 };
-const cmp = (op) => ({
-	p: 4,
-	n: 2,
-	f: (a, b) => phpCmp(a, b, op),
-	c: (a, b) => `phpCmp(${a},${b},"${op}")`,
-});
+const cmp = (op) => call(4, (a, b) => phpCmp(a, b, op));
 
 const OPS = Object.assign(Object.create(null), {
 	"-u": call(10, phpNeg),
-	"+u": { p: 10, n: 1, f: (x) => x, c: (x) => x },
-	e: {
-		p: 10,
-		n: 2,
-		f: (a, b) => phpMul(a, phpPow(10, b)),
-		c: (a, b) => `phpMul(${a},phpPow(10,${b}))`,
-	},
+	"+u": call(10, (x) => x),
+	e: call(10, (a, b) => phpMul(a, phpPow(10, b))),
 	sin: math("sin"),
 	cos: math("cos"),
 	tan: math("tan"),
@@ -334,12 +262,7 @@ const OPS = Object.assign(Object.create(null), {
 	ln: call(9, phpLn),
 	abs: math("abs"),
 	floor: math("floor"),
-	trunc: {
-		p: 9,
-		n: 1,
-		f: (x) => phpToInt(phpAsFloat(x)),
-		c: (x) => `phpToInt(phpAsFloat(${x}))`,
-	},
+	trunc: call(9, (x) => phpToInt(phpAsFloat(x))),
 	ceil: math("ceil"),
 	not: call(9, phpNot),
 	sqrt: call(9, phpSqrt),
@@ -390,32 +313,21 @@ function isAlpha(ch) {
 	return (ch >= "A" && ch <= "Z") || (ch >= "a" && ch <= "z");
 }
 
-function emitNumber(n) {
-	return Object.is(n, -0) ? "-0" : String(n);
-}
-
-
-function doOperation(op, vals, codes) {
+function doOperation(op, vals) {
 	const o = OPS[op];
-	if (!o.f) throw new Error("Expression error: Unknown error ()");
 	if (vals.length < o.n) {
 		const name = op === "-u" || op === "+u" ? op[0] : op;
 		throw new Error(`Expression error: Missing operand for ${name}.`);
 	}
 	if (o.n === 1) {
 		vals.push(o.f(vals.pop()));
-		if (codes) codes.push(o.c(codes.pop()));
 	} else {
 		const b = vals.pop();
 		vals.push(o.f(vals.pop(), b));
-		if (codes) {
-			const cb = codes.pop();
-			codes.push(o.c(codes.pop(), cb));
-		}
 	}
 }
 
-function doExpression(expr, codes) {
+function doExpression(expr) {
 	const vals = [];
 	const operators = [];
 
@@ -446,7 +358,6 @@ function doExpression(expr, codes) {
 			while (p < end && isNumberChar(expr[p])) p++;
 			const num = phpParseNumber(expr.slice(start, p));
 			vals.push(num);
-			if (codes) codes.push(emitNumber(num));
 			expecting = "operator";
 			continue;
 		} else if (isAlpha(char)) {
@@ -458,7 +369,6 @@ function doExpression(expr, codes) {
 					throw new Error("Expression error: Unexpected number.");
 				}
 				vals.push(Math.PI);
-				if (codes) codes.push("Math.PI");
 				expecting = "operator";
 				continue;
 			}
@@ -469,7 +379,6 @@ function doExpression(expr, codes) {
 			}
 			if (op === "e" && expecting === "expression") {
 				vals.push(Math.E);
-				if (codes) codes.push("Math.E");
 				expecting = "operator";
 				continue;
 			}
@@ -491,7 +400,7 @@ function doExpression(expr, codes) {
 		} else if (char === ")") {
 			let lastOp = operators.at(-1);
 			while (lastOp !== undefined && lastOp !== "(") {
-				doOperation(lastOp, vals, codes);
+				doOperation(lastOp, vals);
 				operators.pop();
 				lastOp = operators.at(-1);
 			}
@@ -535,7 +444,7 @@ function doExpression(expr, codes) {
 		const prec = OPS[op].p;
 		let lastOp = operators.at(-1);
 		while (lastOp !== undefined && prec <= OPS[lastOp].p) {
-			doOperation(lastOp, vals, codes);
+			doOperation(lastOp, vals);
 			operators.pop();
 			lastOp = operators.at(-1);
 		}
@@ -548,21 +457,11 @@ function doExpression(expr, codes) {
 		if (top === "(") {
 			throw new Error("Expression error: Unclosed bracket.");
 		}
-		doOperation(top, vals, codes);
+		doOperation(top, vals);
 	}
 
 	if (vals.length === 0) return "";
 	return normalizeResult(vals[0]);
-}
-
-export function transpileExpr(expr) {
-	const codes = [];
-	doExpression(expr, codes);
-	const code = codes.length ? codes[0] : '""';
-	// only phpToInt makes bigints
-	// without it there's nothing to normalize
-	const body = usedHelpers(code).has("phpToInt") ? `normalizeResult(${code})` : code;
-	return `(()=>{ ${runtimeSource(body)} return ${body}; })()`;
 }
 
 export function evaluateExpr(expr, { mediawikiErrors = true } = {}) {
