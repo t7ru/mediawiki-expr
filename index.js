@@ -24,103 +24,76 @@ import {
 
 const MAX_STACK_SIZE = 100;
 
-const PRECEDENCE = {
-	"+u": 10,
-	"-u": 10,
-	e: 10,
-	sin: 9,
-	cos: 9,
-	tan: 9,
-	asin: 9,
-	acos: 9,
-	atan: 9,
-	exp: 9,
-	ln: 9,
-	abs: 9,
-	floor: 9,
-	trunc: 9,
-	ceil: 9,
-	not: 9,
-	sqrt: 9,
-	"^": 8,
-	"*": 7,
-	"/": 7,
-	mod: 7,
-	fmod: 7,
-	"+": 6,
-	"-": 6,
-	round: 5,
-	"=": 4,
-	"<": 4,
-	">": 4,
-	"<=": 4,
-	">=": 4,
-	"<>": 4,
-	and: 3,
-	or: 2,
-	"(": -1,
+const call = (p, f) => ({
+	p,                                              // p = precedence
+	n: f.length,                                    // n = arity
+	f,                                              // f = value fn
+	c: (...args) => `${f.name}(${args.join(",")})`, // c = code fn
+});
+const math = (name) => {
+	const fn = Math[name];
+	return {
+		p: 9,
+		n: 1,
+		f: (x) => fn(phpAsFloat(x)),
+		c: (x) => `Math.${name}(phpAsFloat(${x}))`,
+	};
 };
+const cmp = (op) => ({
+	p: 4,
+	n: 2,
+	f: (a, b) => phpCmp(a, b, op),
+	c: (a, b) => `phpCmp(${a},${b},"${op}")`,
+});
 
-const NAMES = {
-	"-u": "-",
-	"+u": "+",
-	not: "not",
-	"*": "*",
-	"/": "/",
-	mod: "mod",
-	fmod: "fmod",
-	"+": "+",
-	"-": "-",
-	round: "round",
-	"=": "=",
-	"<": "<",
-	">": ">",
-	"<=": "<=",
-	">=": ">=",
-	"<>": "<>",
-	and: "and",
-	or: "or",
-	e: "e",
-	sin: "sin",
-	cos: "cos",
-	tan: "tan",
-	asin: "asin",
-	acos: "acos",
-	atan: "atan",
-	ln: "ln",
-	exp: "exp",
-	abs: "abs",
-	floor: "floor",
-	trunc: "trunc",
-	ceil: "ceil",
-	"^": "^",
-	sqrt: "sqrt",
-};
+const OPS = Object.assign(Object.create(null), {
+	"-u": call(10, phpNeg),
+	"+u": { p: 10, n: 1, f: (x) => x, c: (x) => x },
+	e: {
+		p: 10,
+		n: 2,
+		f: (a, b) => phpMul(a, phpPow(10, b)),
+		c: (a, b) => `phpMul(${a},phpPow(10,${b}))`,
+	},
+	sin: math("sin"),
+	cos: math("cos"),
+	tan: math("tan"),
+	asin: call(9, phpAsin),
+	acos: call(9, phpAcos),
+	atan: math("atan"),
+	exp: math("exp"),
+	ln: call(9, phpLn),
+	abs: math("abs"),
+	floor: math("floor"),
+	trunc: {
+		p: 9,
+		n: 1,
+		f: (x) => phpToInt(phpAsFloat(x)),
+		c: (x) => `phpToInt(phpAsFloat(${x}))`,
+	},
+	ceil: math("ceil"),
+	not: call(9, phpNot),
+	sqrt: call(9, phpSqrt),
+	"^": call(8, phpPow),
+	"*": call(7, phpMul),
+	"/": call(7, phpDiv),
+	mod: call(7, phpMod),
+	fmod: call(7, phpFmod),
+	"+": call(6, phpAdd),
+	"-": call(6, phpSub),
+	round: call(5, phpRound),
+	"=": cmp("="),
+	"<": cmp("<"),
+	">": cmp(">"),
+	"<=": cmp("<="),
+	">=": cmp(">="),
+	"<>": cmp("<>"),
+	and: call(3, phpAnd),
+	or: call(2, phpOr),
+	"(": { p: -1 },
+});
 
-const WORDS = {
-	mod: "mod",
-	fmod: "fmod",
-	and: "and",
-	or: "or",
-	not: "not",
-	round: "round",
-	div: "/",
-	e: "e",
-	sin: "sin",
-	cos: "cos",
-	tan: "tan",
-	asin: "asin",
-	acos: "acos",
-	atan: "atan",
-	exp: "exp",
-	ln: "ln",
-	abs: "abs",
-	trunc: "trunc",
-	floor: "floor",
-	ceil: "ceil",
-	pi: "pi",
-	sqrt: "sqrt",
-};
+const UNESCAPE = { "&lt;": "<", "&gt;": ">", "&minus;": "-", "−": "-" };
 
 function htmlspecialchars(s) {
 	return s
@@ -133,32 +106,7 @@ function htmlspecialchars(s) {
 }
 
 function unescapeExpr(expr) {
-	let out = "";
-	for (let i = 0; i < expr.length; ) {
-		if (expr.startsWith("&lt;", i)) {
-			out += "<";
-			i += 4;
-			continue;
-		}
-		if (expr.startsWith("&gt;", i)) {
-			out += ">";
-			i += 4;
-			continue;
-		}
-		if (expr.startsWith("&minus;", i)) {
-			out += "-";
-			i += 7;
-			continue;
-		}
-		if (expr[i] === "\u2212") {
-			out += "-";
-			i += 1;
-			continue;
-		}
-		out += expr[i];
-		i += 1;
-	}
-	return out;
+	return expr.replace(/&lt;|&gt;|&minus;|−/g, (m) => UNESCAPE[m]);
 }
 
 function isWhite(ch) {
@@ -174,351 +122,39 @@ function isAlpha(ch) {
 }
 
 function emitNumber(n) {
-	if (Object.is(n, -0)) return "-0";
-	if (Number.isNaN(n)) return "NaN";
-	if (n === Infinity) return "Infinity";
-	if (n === -Infinity) return "-Infinity";
-	return String(n);
+	return Object.is(n, -0) ? "-0" : String(n);
 }
 
 function normalizeResult(v) {
-	if (typeof v === "bigint") {
-		const n = Number(v);
-		if (Number.isSafeInteger(n) && BigInt(n) === v) return n;
-		return v;
+	return typeof v === "bigint" &&
+		v >= -9007199254740991n &&
+		v <= 9007199254740991n
+		? Number(v)
+		: v;
+}
+
+function doOperation(op, vals, codes) {
+	const o = OPS[op];
+	if (!o.f) throw new Error("Expression error: Unknown error ()");
+	if (vals.length < o.n) {
+		const name = op === "-u" || op === "+u" ? op[0] : op;
+		throw new Error(`Expression error: Missing operand for ${name}.`);
 	}
-	return v;
-}
-
-function missingOperand(op) {
-	throw new Error(`Expression error: Missing operand for ${NAMES[op]}.`);
-}
-
-function doOperation(op, operands) {
-	switch (op) {
-		case "-u": {
-			if (operands.length < 1) missingOperand(op);
-			const arg = operands.pop();
-			operands.push({ v: phpNeg(arg.v), c: `phpNeg(${arg.c})` });
-			break;
+	if (o.n === 1) {
+		vals.push(o.f(vals.pop()));
+		if (codes) codes.push(o.c(codes.pop()));
+	} else {
+		const b = vals.pop();
+		vals.push(o.f(vals.pop(), b));
+		if (codes) {
+			const cb = codes.pop();
+			codes.push(o.c(codes.pop(), cb));
 		}
-		case "+u": {
-			if (operands.length < 1) missingOperand(op);
-			break;
-		}
-		case "*": {
-			if (operands.length < 2) missingOperand(op);
-			const right = operands.pop();
-			const left = operands.pop();
-			operands.push({
-				v: phpMul(left.v, right.v),
-				c: `phpMul(${left.c},${right.c})`,
-			});
-			break;
-		}
-		case "/": {
-			if (operands.length < 2) missingOperand(op);
-			const right = operands.pop();
-			const left = operands.pop();
-			operands.push({
-				v: phpDiv(left.v, right.v),
-				c: `phpDiv(${left.c},${right.c})`,
-			});
-			break;
-		}
-		case "mod": {
-			if (operands.length < 2) missingOperand(op);
-			const right = operands.pop();
-			const left = operands.pop();
-			operands.push({
-				v: phpMod(left.v, right.v),
-				c: `phpMod(${left.c},${right.c})`,
-			});
-			break;
-		}
-		case "fmod": {
-			if (operands.length < 2) missingOperand(op);
-			const right = operands.pop();
-			const left = operands.pop();
-			operands.push({
-				v: phpFmod(left.v, right.v),
-				c: `phpFmod(${left.c},${right.c})`,
-			});
-			break;
-		}
-		case "+": {
-			if (operands.length < 2) missingOperand(op);
-			const right = operands.pop();
-			const left = operands.pop();
-			operands.push({
-				v: phpAdd(left.v, right.v),
-				c: `phpAdd(${left.c},${right.c})`,
-			});
-			break;
-		}
-		case "-": {
-			if (operands.length < 2) missingOperand(op);
-			const right = operands.pop();
-			const left = operands.pop();
-			operands.push({
-				v: phpSub(left.v, right.v),
-				c: `phpSub(${left.c},${right.c})`,
-			});
-			break;
-		}
-		case "and": {
-			if (operands.length < 2) missingOperand(op);
-			const right = operands.pop();
-			const left = operands.pop();
-			operands.push({
-				v: phpAnd(left.v, right.v),
-				c: `phpAnd(${left.c},${right.c})`,
-			});
-			break;
-		}
-		case "or": {
-			if (operands.length < 2) missingOperand(op);
-			const right = operands.pop();
-			const left = operands.pop();
-			operands.push({
-				v: phpOr(left.v, right.v),
-				c: `phpOr(${left.c},${right.c})`,
-			});
-			break;
-		}
-		case "=": {
-			if (operands.length < 2) missingOperand(op);
-			const right = operands.pop();
-			const left = operands.pop();
-			operands.push({
-				v: phpCmp(left.v, right.v, "="),
-				c: `phpCmp(${left.c},${right.c},"=")`,
-			});
-			break;
-		}
-		case "not": {
-			if (operands.length < 1) missingOperand(op);
-			const arg = operands.pop();
-			operands.push({
-				v: phpNot(arg.v),
-				c: `phpNot(${arg.c})`,
-			});
-			break;
-		}
-		case "round": {
-			if (operands.length < 2) missingOperand(op);
-			const digits = operands.pop();
-			const value = operands.pop();
-			operands.push({
-				v: phpRound(value.v, digits.v),
-				c: `phpRound(${value.c},${digits.c})`,
-			});
-			break;
-		}
-		case "<": {
-			if (operands.length < 2) missingOperand(op);
-			const right = operands.pop();
-			const left = operands.pop();
-			operands.push({
-				v: phpCmp(left.v, right.v, "<"),
-				c: `phpCmp(${left.c},${right.c},"<")`,
-			});
-			break;
-		}
-		case ">": {
-			if (operands.length < 2) missingOperand(op);
-			const right = operands.pop();
-			const left = operands.pop();
-			operands.push({
-				v: phpCmp(left.v, right.v, ">"),
-				c: `phpCmp(${left.c},${right.c},">")`,
-			});
-			break;
-		}
-		case "<=": {
-			if (operands.length < 2) missingOperand(op);
-			const right = operands.pop();
-			const left = operands.pop();
-			operands.push({
-				v: phpCmp(left.v, right.v, "<="),
-				c: `phpCmp(${left.c},${right.c},"<=")`,
-			});
-			break;
-		}
-		case ">=": {
-			if (operands.length < 2) missingOperand(op);
-			const right = operands.pop();
-			const left = operands.pop();
-			operands.push({
-				v: phpCmp(left.v, right.v, ">="),
-				c: `phpCmp(${left.c},${right.c},">=")`,
-			});
-			break;
-		}
-		case "<>": {
-			if (operands.length < 2) missingOperand(op);
-			const right = operands.pop();
-			const left = operands.pop();
-			operands.push({
-				v: phpCmp(left.v, right.v, "<>"),
-				c: `phpCmp(${left.c},${right.c},"<>")`,
-			});
-			break;
-		}
-		case "e": {
-			if (operands.length < 2) missingOperand(op);
-			const right = operands.pop();
-			const left = operands.pop();
-			operands.push({
-				v: phpMul(left.v, phpPow(10, right.v)),
-				c: `phpMul(${left.c},phpPow(10,${right.c}))`,
-			});
-			break;
-		}
-		case "sin": {
-			if (operands.length < 1) missingOperand(op);
-			const arg = operands.pop();
-			operands.push({
-				v: Math.sin(phpAsFloat(arg.v)),
-				c: `Math.sin(phpAsFloat(${arg.c}))`,
-			});
-			break;
-		}
-		case "cos": {
-			if (operands.length < 1) missingOperand(op);
-			const arg = operands.pop();
-			operands.push({
-				v: Math.cos(phpAsFloat(arg.v)),
-				c: `Math.cos(phpAsFloat(${arg.c}))`,
-			});
-			break;
-		}
-		case "tan": {
-			if (operands.length < 1) missingOperand(op);
-			const arg = operands.pop();
-			operands.push({
-				v: Math.tan(phpAsFloat(arg.v)),
-				c: `Math.tan(phpAsFloat(${arg.c}))`,
-			});
-			break;
-		}
-		case "asin": {
-			if (operands.length < 1) missingOperand(op);
-			const arg = operands.pop();
-			operands.push({
-				v: phpAsin(arg.v),
-				c: `phpAsin(${arg.c})`,
-			});
-			break;
-		}
-		case "acos": {
-			if (operands.length < 1) missingOperand(op);
-			const arg = operands.pop();
-			operands.push({
-				v: phpAcos(arg.v),
-				c: `phpAcos(${arg.c})`,
-			});
-			break;
-		}
-		case "atan": {
-			if (operands.length < 1) missingOperand(op);
-			const arg = operands.pop();
-			operands.push({
-				v: Math.atan(phpAsFloat(arg.v)),
-				c: `Math.atan(phpAsFloat(${arg.c}))`,
-			});
-			break;
-		}
-		case "exp": {
-			if (operands.length < 1) missingOperand(op);
-			const arg = operands.pop();
-			operands.push({
-				v: Math.exp(phpAsFloat(arg.v)),
-				c: `Math.exp(phpAsFloat(${arg.c}))`,
-			});
-			break;
-		}
-		case "ln": {
-			if (operands.length < 1) missingOperand(op);
-			const arg = operands.pop();
-			operands.push({
-				v: phpLn(arg.v),
-				c: `phpLn(${arg.c})`,
-			});
-			break;
-		}
-		case "abs": {
-			if (operands.length < 1) missingOperand(op);
-			const arg = operands.pop();
-			operands.push({
-				v: Math.abs(phpAsFloat(arg.v)),
-				c: `Math.abs(phpAsFloat(${arg.c}))`,
-			});
-			break;
-		}
-		case "floor": {
-			if (operands.length < 1) missingOperand(op);
-			const arg = operands.pop();
-			operands.push({
-				v: Math.floor(phpAsFloat(arg.v)),
-				c: `Math.floor(phpAsFloat(${arg.c}))`,
-			});
-			break;
-		}
-		case "trunc": {
-			if (operands.length < 1) missingOperand(op);
-			const arg = operands.pop();
-			operands.push({
-				v: phpToInt(phpAsFloat(arg.v)),
-				c: `phpToInt(phpAsFloat(${arg.c}))`,
-			});
-			break;
-		}
-		case "ceil": {
-			if (operands.length < 1) missingOperand(op);
-			const arg = operands.pop();
-			operands.push({
-				v: Math.ceil(phpAsFloat(arg.v)),
-				c: `Math.ceil(phpAsFloat(${arg.c}))`,
-			});
-			break;
-		}
-		case "^": {
-			if (operands.length < 2) missingOperand(op);
-			const right = operands.pop();
-			const left = operands.pop();
-			operands.push({
-				v: phpPow(left.v, right.v),
-				c: `phpPow(${left.c},${right.c})`,
-			});
-			break;
-		}
-		case "sqrt": {
-			if (operands.length < 1) missingOperand(op);
-			const arg = operands.pop();
-			operands.push({
-				v: phpSqrt(arg.v),
-				c: `phpSqrt(${arg.c})`,
-			});
-			break;
-		}
-		default:
-			throw new Error("Expression error: Unknown error ()");
 	}
 }
 
-function shuntBinary(op, operators, operands) {
-	let lastOp = operators.length ? operators[operators.length - 1] : null;
-	while (lastOp && PRECEDENCE[op] <= PRECEDENCE[lastOp]) {
-		doOperation(lastOp, operands);
-		operators.pop();
-		lastOp = operators.length ? operators[operators.length - 1] : null;
-	}
-	operators.push(op);
-}
-
-function doExpression(expr) {
-	const operands = [];
+function doExpression(expr, codes) {
+	const vals = [];
 	const operators = [];
 
 	expr = unescapeExpr(expr);
@@ -530,14 +166,14 @@ function doExpression(expr) {
 	let op = null;
 
 	while (p < end) {
-		if (operands.length > MAX_STACK_SIZE || operators.length > MAX_STACK_SIZE) {
+		if (vals.length > MAX_STACK_SIZE || operators.length > MAX_STACK_SIZE) {
 			throw new Error("Expression error: Stack exhausted.");
 		}
 
 		const char = expr[p];
-		const char2 = expr.slice(p, p + 2);
 
 		if (isWhite(char)) {
+			p++;
 			while (p < end && isWhite(expr[p])) p++;
 			continue;
 		} else if (isNumberChar(char)) {
@@ -547,95 +183,42 @@ function doExpression(expr) {
 			const start = p;
 			while (p < end && isNumberChar(expr[p])) p++;
 			const num = phpParseNumber(expr.slice(start, p));
-			operands.push({ v: num, c: emitNumber(num) });
+			vals.push(num);
+			if (codes) codes.push(emitNumber(num));
 			expecting = "operator";
 			continue;
 		} else if (isAlpha(char)) {
 			const start = p;
 			while (p < end && isAlpha(expr[p])) p++;
 			const word = expr.slice(start, p).toLowerCase();
-			if (!(word in WORDS)) {
-				throw new Error(
-					`Expression error: Unrecognized word "${word}".`,
-				);
+			if (word === "pi") {
+				if (expecting !== "expression") {
+					throw new Error("Expression error: Unexpected number.");
+				}
+				vals.push(Math.PI);
+				if (codes) codes.push("Math.PI");
+				expecting = "operator";
+				continue;
 			}
-			op = WORDS[word];
-			switch (op) {
-				case "e":
-					if (expecting === "expression") {
-						operands.push({ v: Math.E, c: "Math.E" });
-						expecting = "operator";
-						continue;
-					}
-					break;
-				case "pi":
-					if (expecting !== "expression") {
-						throw new Error("Expression error: Unexpected number.");
-					}
-					operands.push({ v: Math.PI, c: "Math.PI" });
-					expecting = "operator";
-					continue;
-				case "not":
-				case "sin":
-				case "cos":
-				case "tan":
-				case "asin":
-				case "acos":
-				case "atan":
-				case "exp":
-				case "ln":
-				case "abs":
-				case "floor":
-				case "trunc":
-				case "ceil":
-				case "sqrt":
-					if (expecting !== "expression") {
-						throw new Error(
-							`Expression error: Unexpected ${word} operator.`,
-						);
-					}
-					operators.push(op);
-					continue;
+			op = word === "div" ? "/" : word;
+			const o = OPS[op];
+			if (!o) {
+				throw new Error(`Expression error: Unrecognized word "${word}".`);
+			}
+			if (op === "e" && expecting === "expression") {
+				vals.push(Math.E);
+				if (codes) codes.push("Math.E");
+				expecting = "operator";
+				continue;
+			}
+			if (o.n === 1) {
+				if (expecting !== "expression") {
+					throw new Error(`Expression error: Unexpected ${word} operator.`);
+				}
+				operators.push(op);
+				continue;
 			}
 			name = word;
-		} else if (char2 === "<=") {
-			name = char2;
-			op = "<=";
-			p += 2;
-		} else if (char2 === ">=") {
-			name = char2;
-			op = ">=";
-			p += 2;
-		} else if (char2 === "<>" || char2 === "!=") {
-			name = char2;
-			op = "<>";
-			p += 2;
-		} else if (char === "+") {
-			p += 1;
-			if (expecting === "expression") {
-				operators.push("+u");
-				continue;
-			}
-			op = "+";
-		} else if (char === "-") {
-			p += 1;
-			if (expecting === "expression") {
-				operators.push("-u");
-				continue;
-			}
-			op = "-";
-		} else if (char === "*") {
-			name = char;
-			op = "*";
-			p += 1;
-		} else if (char === "/") {
-			name = char;
-			op = "/";
-			p += 1;
-		} else if (char === "^") {
-			name = char;
-			op = "^";
-			p += 1;
 		} else if (char === "(") {
 			if (expecting === "operator") {
 				throw new Error("Expression error: Unexpected ( operator.");
@@ -644,44 +227,57 @@ function doExpression(expr) {
 			p += 1;
 			continue;
 		} else if (char === ")") {
-			let lastOp = operators.length ? operators[operators.length - 1] : null;
-			while (lastOp && lastOp !== "(") {
-				doOperation(lastOp, operands);
+			let lastOp = operators.at(-1);
+			while (lastOp !== undefined && lastOp !== "(") {
+				doOperation(lastOp, vals, codes);
 				operators.pop();
-				lastOp = operators.length ? operators[operators.length - 1] : null;
+				lastOp = operators.at(-1);
 			}
-			if (lastOp) {
-				operators.pop();
-			} else {
+			if (lastOp === undefined) {
 				throw new Error("Expression error: Unexpected closing bracket.");
 			}
+			operators.pop();
 			expecting = "operator";
 			p += 1;
 			continue;
-		} else if (char === "=") {
-			name = char;
-			op = "=";
+		} else if (char === "+" || char === "-") {
 			p += 1;
-		} else if (char === "<") {
-			name = char;
-			op = "<";
-			p += 1;
-		} else if (char === ">") {
-			name = char;
-			op = ">";
-			p += 1;
+			if (expecting === "expression") {
+				operators.push(char + "u");
+				continue;
+			}
+			op = char;
 		} else {
-			const cp = expr.codePointAt(p);
-			const ch = String.fromCodePoint(cp);
-			throw new Error(
-				`Expression error: Unrecognized punctuation character "${ch}".`,
-			);
+			const next = expr[p + 1];
+			if (char === "<" && (next === "=" || next === ">")) {
+				op = char + next;
+			} else if (char === ">" && next === "=") {
+				op = ">=";
+			} else if (char === "!" && next === "=") {
+				op = "<>";
+			} else if ("*/^=<>".includes(char)) {
+				op = char;
+			} else {
+				const ch = String.fromCodePoint(expr.codePointAt(p));
+				throw new Error(
+					`Expression error: Unrecognized punctuation character "${ch}".`,
+				);
+			}
+			name = op === "<>" ? char + next : op;
+			p += name.length;
 		}
 
 		if (expecting === "expression") {
 			throw new Error(`Expression error: Unexpected ${name} operator.`);
 		}
-		shuntBinary(op, operators, operands);
+		const prec = OPS[op].p;
+		let lastOp = operators.at(-1);
+		while (lastOp !== undefined && prec <= OPS[lastOp].p) {
+			doOperation(lastOp, vals, codes);
+			operators.pop();
+			lastOp = operators.at(-1);
+		}
+		operators.push(op);
 		expecting = "expression";
 	}
 
@@ -690,24 +286,25 @@ function doExpression(expr) {
 		if (top === "(") {
 			throw new Error("Expression error: Unclosed bracket.");
 		}
-		doOperation(top, operands);
+		doOperation(top, vals, codes);
 	}
 
-	if (operands.length === 0) {
-		return { value: "", code: '""' };
-	}
-	const top = operands[0];
-	return { value: normalizeResult(top.v), code: top.c };
+	if (vals.length === 0) return "";
+	return normalizeResult(vals[0]);
 }
 
+let prelude;
+
 export function transpileExpr(expr) {
-	const { code } = doExpression(expr);
-	return `(()=>{ ${runtimeSource()}; ${normalizeResult.toString()}; return normalizeResult(${code}); })()`;
+	const codes = [];
+	doExpression(expr, codes);
+	prelude ??= `${runtimeSource()}; ${normalizeResult.toString()};`;
+	return `(()=>{ ${prelude} return normalizeResult(${codes.length ? codes[0] : '""'}); })()`;
 }
 
 export function evaluateExpr(expr, { mediawikiErrors = true } = {}) {
 	try {
-		return doExpression(expr).value;
+		return doExpression(expr);
 	} catch (e) {
 		if (!mediawikiErrors) {
 			return NaN;
