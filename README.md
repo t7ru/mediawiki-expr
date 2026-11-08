@@ -32,7 +32,10 @@ console.log(value); // 8.389056098930649
 
 - `expr` (string) - A MediaWiki `#expr` expression, e.g. `"1 + 2 * 3"`
 
-Returns a string of self-contained JavaScript code that evaluates the expression. Only the runtime helpers the expression needs are inlined.
+Returns:
+
+- A self-contained JavaScript IIFE string.
+- Throws an `Error` on invalid expressions (`1/0` -> `Division by zero.`).
 
 ### `evaluateExpr(expr: string, options?: { mediawikiErrors?: boolean }): number | bigint | string`
 

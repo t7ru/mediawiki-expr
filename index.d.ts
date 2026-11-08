@@ -10,6 +10,10 @@ export interface EvaluateOptions {
 
 /**
  * Transpiles MediaWiki #expr syntax into an IIFE.
+ * Only the runtime helpers the expression needs are inlined.
+ *
+ * @throws {Error} On syntax or evaluation errors (e.g. `1/0`)
+ * with the same message `evaluateExpr` would wrap in HTML.
  */
 export declare function transpileExpr(expr: string): string;
 
