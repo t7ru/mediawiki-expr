@@ -282,6 +282,10 @@ checkError(
 	mwError("Expression error: Unrecognized word &quot;foo&quot;."),
 );
 checkError(
+	"1 constructor 2",
+	mwError("Expression error: Unrecognized word &quot;constructor&quot;."),
+);
+checkError(
 	"1 + , 2",
 	mwError("Expression error: Unrecognized punctuation character &quot;,&quot;."),
 );
