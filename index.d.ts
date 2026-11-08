@@ -1,34 +1,27 @@
-export type TokenType = "number" | "word" | "op" | "paren" | "eof";
-
-export type Token = {
-	type: TokenType;
-	value: string;
-};
-
-export type Node =
-	| { type: "number"; value: string }
-	| { type: "constant"; name: "pi" | "e" }
-	| { type: "unary"; op: string; arg: Node }
-	| { type: "binary"; op: string; left: Node; right: Node };
-
-/**
- * Transpiles MediaWiki #expr syntax into valid JavaScript.
- */
-export declare function transpileExpr(expr: string): string;
-
 export interface EvaluateOptions {
 	/**
 	 * If true, returns an HTML error string on evaluation failure like MediaWiki.
 	 * If false, returns `NaN` on error instead.
+	 * Empty success (`""`, `"()"`, whitespace) is `""` even when this is false.
 	 * @default true
 	 */
 	mediawikiErrors?: boolean;
 }
 
 /**
- * Evaluates MediaWiki #expr syntax.
+ * Transpiles MediaWiki #expr syntax into an IIFE.
+ */
+export declare function transpileExpr(expr: string): string;
+
+/**
+ * Success is a JS `number` (including `-0`, `NaN`, `Infinity`)
+ * or a `bigint` when the PHP int is outside the JS safe-integer range
+ * (e.g. `trunc 1e20` -> `7766279631452241920n`),
+ * or `""` for an empty operand stack.
+ *
+ * Errors are HTML when `mediawikiErrors` is true, otherwise `NaN`.
  */
 export declare function evaluateExpr(
 	expr: string,
 	options?: EvaluateOptions,
-): number | string;
+): number | bigint | string;

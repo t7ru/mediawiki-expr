@@ -1,46 +1,28 @@
-const WORD_OPERATORS = new Set([
-	"mod",
-	"fmod",
-	"and",
-	"or",
-	"not",
-	"round",
-	"div",
-	"e",
-	"sin",
-	"cos",
-	"tan",
-	"asin",
-	"acos",
-	"atan",
-	"exp",
-	"ln",
-	"abs",
-	"trunc",
-	"floor",
-	"ceil",
-	"pi",
-	"sqrt",
-]);
+import {
+	phpParseNumber,
+	phpToInt,
+	phpAsFloat,
+	phpRound,
+	phpAdd,
+	phpSub,
+	phpMul,
+	phpDiv,
+	phpMod,
+	phpFmod,
+	phpPow,
+	phpNeg,
+	phpNot,
+	phpAnd,
+	phpOr,
+	phpLn,
+	phpAsin,
+	phpAcos,
+	phpSqrt,
+	phpCmp,
+	runtimeSource,
+} from "./runtime.js";
 
-const PREFIX_OPERATORS = new Set([
-	"+",
-	"-",
-	"not",
-	"sin",
-	"cos",
-	"tan",
-	"asin",
-	"acos",
-	"atan",
-	"exp",
-	"ln",
-	"abs",
-	"trunc",
-	"floor",
-	"ceil",
-	"sqrt",
-]);
+const MAX_STACK_SIZE = 100;
 
 const PRECEDENCE = {
 	"+u": 10,
@@ -63,7 +45,6 @@ const PRECEDENCE = {
 	"^": 8,
 	"*": 7,
 	"/": 7,
-	div: 7,
 	mod: 7,
 	fmod: 7,
 	"+": 6,
@@ -75,403 +56,662 @@ const PRECEDENCE = {
 	"<=": 4,
 	">=": 4,
 	"<>": 4,
-	"!=": 4,
 	and: 3,
 	or: 2,
+	"(": -1,
 };
 
-function mwNot(v) {
-	return `(__mwBool(${v}) ? 0 : 1)`;
-}
-function mwAnd(a, b) {
-	return `((__mwBool(${a}) && __mwBool(${b})) ? 1 : 0)`;
-}
-function mwOr(a, b) {
-	return `((__mwBool(${a}) || __mwBool(${b})) ? 1 : 0)`;
-}
-function mwEq(a, b) {
-	return `(((${a}) == (${b})) ? 1 : 0)`;
-}
-function mwNe(a, b) {
-	return `(((${a}) != (${b})) ? 1 : 0)`;
-}
-function mwLt(a, b) {
-	return `(((${a}) < (${b})) ? 1 : 0)`;
-}
-function mwGt(a, b) {
-	return `(((${a}) > (${b})) ? 1 : 0)`;
-}
-function mwLe(a, b) {
-	return `(((${a}) <= (${b})) ? 1 : 0)`;
-}
-function mwGe(a, b) {
-	return `(((${a}) >= (${b})) ? 1 : 0)`;
-}
-function mwRound(a, b) {
-	return `__mwRound((${a}), (${b}))`;
-}
-function mwMod(a, b) {
-	return `__mwMod((${a}), (${b}))`;
-}
-function mwFmod(a, b) {
-	return `__mwFmod((${a}), (${b}))`;
-}
-function mwDiv(a, b) {
-	return `__mwDiv((${a}), (${b}))`;
-}
-function mwExp10(a, b) {
-	return `((${a}) * Math.pow(10, (${b})))`;
+const NAMES = {
+	"-u": "-",
+	"+u": "+",
+	not: "not",
+	"*": "*",
+	"/": "/",
+	mod: "mod",
+	fmod: "fmod",
+	"+": "+",
+	"-": "-",
+	round: "round",
+	"=": "=",
+	"<": "<",
+	">": ">",
+	"<=": "<=",
+	">=": ">=",
+	"<>": "<>",
+	and: "and",
+	or: "or",
+	e: "e",
+	sin: "sin",
+	cos: "cos",
+	tan: "tan",
+	asin: "asin",
+	acos: "acos",
+	atan: "atan",
+	ln: "ln",
+	exp: "exp",
+	abs: "abs",
+	floor: "floor",
+	trunc: "trunc",
+	ceil: "ceil",
+	"^": "^",
+	sqrt: "sqrt",
+};
+
+const WORDS = {
+	mod: "mod",
+	fmod: "fmod",
+	and: "and",
+	or: "or",
+	not: "not",
+	round: "round",
+	div: "/",
+	e: "e",
+	sin: "sin",
+	cos: "cos",
+	tan: "tan",
+	asin: "asin",
+	acos: "acos",
+	atan: "atan",
+	exp: "exp",
+	ln: "ln",
+	abs: "abs",
+	trunc: "trunc",
+	floor: "floor",
+	ceil: "ceil",
+	pi: "pi",
+	sqrt: "sqrt",
+};
+
+function htmlspecialchars(s) {
+	return s
+		.toWellFormed()
+		.replaceAll("&", "&amp;")
+		.replaceAll('"', "&quot;")
+		.replaceAll("'", "&#039;")
+		.replaceAll("<", "&lt;")
+		.replaceAll(">", "&gt;");
 }
 
-function tokenize(expr) {
-	const tokens = [];
-	const input = expr
-		.replace(/&lt;/gi, "<")
-		.replace(/&gt;/gi, ">")
-		.replace(/&minus;|−/g, "-");
-	let i = 0;
-	const peek = () => {
-		var _a;
-		return (_a = input[i]) !== null && _a !== void 0 ? _a : "";
-	};
-	const next = () => {
-		var _a;
-		return (_a = input[i++]) !== null && _a !== void 0 ? _a : "";
-	};
-	while (i < input.length) {
-		const ch = peek();
-		if (/\s/.test(ch)) {
-			i++;
+function unescapeExpr(expr) {
+	let out = "";
+	for (let i = 0; i < expr.length; ) {
+		if (expr.startsWith("&lt;", i)) {
+			out += "<";
+			i += 4;
 			continue;
 		}
-		if (/[0-9.]/.test(ch)) {
-			let num = "";
-			let dots = 0;
-			while (i < input.length) {
-				const c = peek();
-				if (c === ".") {
-					if (++dots > 1) break;
-				}
-				if (!/[0-9.]/.test(c)) break;
-				num += next();
-			}
-			tokens.push({ type: "number", value: num });
+		if (expr.startsWith("&gt;", i)) {
+			out += ">";
+			i += 4;
 			continue;
 		}
-		if (/[A-Za-z]/.test(ch)) {
-			let word = "";
-			while (i < input.length && /[A-Za-z]/.test(peek())) {
-				word += next();
-			}
-			const lower = word.toLowerCase();
-			if (!WORD_OPERATORS.has(lower)) {
-				throw new Error(`Unrecognized word "${word}"`);
-			}
-			tokens.push({ type: "word", value: lower });
+		if (expr.startsWith("&minus;", i)) {
+			out += "-";
+			i += 7;
 			continue;
 		}
-		const two = input.slice(i, i + 2);
-		if (two === "<=" || two === ">=" || two === "<>" || two === "!=") {
-			tokens.push({ type: "op", value: two });
-			i += 2;
+		if (expr[i] === "\u2212") {
+			out += "-";
+			i += 1;
 			continue;
 		}
-		if ("+-*/^=<>".includes(ch)) {
-			tokens.push({ type: "op", value: next() });
-			continue;
-		}
-		if (ch === "(" || ch === ")") {
-			tokens.push({ type: "paren", value: next() });
-			continue;
-		}
-		throw new Error(`Unrecognized punctuation character "${ch}"`);
+		out += expr[i];
+		i += 1;
 	}
-	tokens.push({ type: "eof", value: "" });
-	return tokens;
+	return out;
 }
 
-class Parser {
-	constructor(expr) {
-		this.pos = 0;
-		this.tokens = tokenize(expr);
+function isWhite(ch) {
+	return ch === " " || ch === "\t" || ch === "\r" || ch === "\n";
+}
+
+function isNumberChar(ch) {
+	return (ch >= "0" && ch <= "9") || ch === ".";
+}
+
+function isAlpha(ch) {
+	return (ch >= "A" && ch <= "Z") || (ch >= "a" && ch <= "z");
+}
+
+function emitNumber(n) {
+	if (Object.is(n, -0)) return "-0";
+	if (Number.isNaN(n)) return "NaN";
+	if (n === Infinity) return "Infinity";
+	if (n === -Infinity) return "-Infinity";
+	return String(n);
+}
+
+function normalizeResult(v) {
+	if (typeof v === "bigint") {
+		const n = Number(v);
+		if (Number.isSafeInteger(n) && BigInt(n) === v) return n;
+		return v;
 	}
-	parse() {
-		const node = this.parseExpression(0);
-		if (this.current().type !== "eof") {
-			throw new Error(`Unexpected token "${this.current().value}"`);
+	return v;
+}
+
+function missingOperand(op) {
+	throw new Error(`Expression error: Missing operand for ${NAMES[op]}.`);
+}
+
+function doOperation(op, operands) {
+	switch (op) {
+		case "-u": {
+			if (operands.length < 1) missingOperand(op);
+			const arg = operands.pop();
+			operands.push({ v: phpNeg(arg.v), c: `phpNeg(${arg.c})` });
+			break;
 		}
-		return node;
-	}
-	current() {
-		return this.tokens[this.pos];
-	}
-	advance() {
-		return this.tokens[this.pos++];
-	}
-	parseExpression(minPrec) {
-		let left = this.parsePrefix();
-		while (true) {
-			const tok = this.current();
-			const op = this.getBinaryOp(tok);
-			if (!op) break;
-			const prec = PRECEDENCE[op];
-			if (prec < minPrec) break;
-			this.advance();
-			const right = this.parseExpression(prec + 1);
-			left = {
-				type: "binary",
-				op,
-				left,
-				right,
-			};
+		case "+u": {
+			if (operands.length < 1) missingOperand(op);
+			break;
 		}
-		return left;
-	}
-	parsePrefix() {
-		const tok = this.current();
-		if (tok.type === "op" && (tok.value === "+" || tok.value === "-")) {
-			this.advance();
-			const arg = this.parseExpression(PRECEDENCE[`${tok.value}u`]);
-			return {
-				type: "unary",
-				op: `${tok.value}u`,
-				arg,
-			};
+		case "*": {
+			if (operands.length < 2) missingOperand(op);
+			const right = operands.pop();
+			const left = operands.pop();
+			operands.push({
+				v: phpMul(left.v, right.v),
+				c: `phpMul(${left.c},${right.c})`,
+			});
+			break;
 		}
-		if (tok.type === "word") {
-			const word = tok.value;
-			if (word === "pi") {
-				this.advance();
-				return { type: "constant", name: "pi" };
-			}
-			if (word === "e") {
-				this.advance();
-				return { type: "constant", name: "e" };
-			}
-			if (PREFIX_OPERATORS.has(word)) {
-				this.advance();
-				const arg = this.parseExpression(PRECEDENCE[word]);
-				return {
-					type: "unary",
-					op: word,
-					arg,
-				};
-			}
+		case "/": {
+			if (operands.length < 2) missingOperand(op);
+			const right = operands.pop();
+			const left = operands.pop();
+			operands.push({
+				v: phpDiv(left.v, right.v),
+				c: `phpDiv(${left.c},${right.c})`,
+			});
+			break;
 		}
-		if (tok.type === "number") {
-			this.advance();
-			return { type: "number", value: tok.value };
+		case "mod": {
+			if (operands.length < 2) missingOperand(op);
+			const right = operands.pop();
+			const left = operands.pop();
+			operands.push({
+				v: phpMod(left.v, right.v),
+				c: `phpMod(${left.c},${right.c})`,
+			});
+			break;
 		}
-		if (tok.type === "paren" && tok.value === "(") {
-			this.advance();
-			const inner = this.parseExpression(0);
-			const close = this.current();
-			if (close.type !== "paren" || close.value !== ")") {
-				throw new Error("Unclosed bracket");
-			}
-			this.advance();
-			return inner;
+		case "fmod": {
+			if (operands.length < 2) missingOperand(op);
+			const right = operands.pop();
+			const left = operands.pop();
+			operands.push({
+				v: phpFmod(left.v, right.v),
+				c: `phpFmod(${left.c},${right.c})`,
+			});
+			break;
 		}
-		throw new Error(`Unexpected token: ${tok.value}`);
-	}
-	getBinaryOp(tok) {
-		if (tok.type === "op") {
-			if (tok.value in PRECEDENCE) return tok.value;
-			return null;
+		case "+": {
+			if (operands.length < 2) missingOperand(op);
+			const right = operands.pop();
+			const left = operands.pop();
+			operands.push({
+				v: phpAdd(left.v, right.v),
+				c: `phpAdd(${left.c},${right.c})`,
+			});
+			break;
 		}
-		if (tok.type === "word") {
-			if (
-				tok.value === "mod" ||
-				tok.value === "fmod" ||
-				tok.value === "and" ||
-				tok.value === "or" ||
-				tok.value === "round" ||
-				tok.value === "div" ||
-				tok.value === "e"
-			) {
-				return tok.value;
-			}
+		case "-": {
+			if (operands.length < 2) missingOperand(op);
+			const right = operands.pop();
+			const left = operands.pop();
+			operands.push({
+				v: phpSub(left.v, right.v),
+				c: `phpSub(${left.c},${right.c})`,
+			});
+			break;
 		}
-		return null;
+		case "and": {
+			if (operands.length < 2) missingOperand(op);
+			const right = operands.pop();
+			const left = operands.pop();
+			operands.push({
+				v: phpAnd(left.v, right.v),
+				c: `phpAnd(${left.c},${right.c})`,
+			});
+			break;
+		}
+		case "or": {
+			if (operands.length < 2) missingOperand(op);
+			const right = operands.pop();
+			const left = operands.pop();
+			operands.push({
+				v: phpOr(left.v, right.v),
+				c: `phpOr(${left.c},${right.c})`,
+			});
+			break;
+		}
+		case "=": {
+			if (operands.length < 2) missingOperand(op);
+			const right = operands.pop();
+			const left = operands.pop();
+			operands.push({
+				v: phpCmp(left.v, right.v, "="),
+				c: `phpCmp(${left.c},${right.c},"=")`,
+			});
+			break;
+		}
+		case "not": {
+			if (operands.length < 1) missingOperand(op);
+			const arg = operands.pop();
+			operands.push({
+				v: phpNot(arg.v),
+				c: `phpNot(${arg.c})`,
+			});
+			break;
+		}
+		case "round": {
+			if (operands.length < 2) missingOperand(op);
+			const digits = operands.pop();
+			const value = operands.pop();
+			operands.push({
+				v: phpRound(value.v, digits.v),
+				c: `phpRound(${value.c},${digits.c})`,
+			});
+			break;
+		}
+		case "<": {
+			if (operands.length < 2) missingOperand(op);
+			const right = operands.pop();
+			const left = operands.pop();
+			operands.push({
+				v: phpCmp(left.v, right.v, "<"),
+				c: `phpCmp(${left.c},${right.c},"<")`,
+			});
+			break;
+		}
+		case ">": {
+			if (operands.length < 2) missingOperand(op);
+			const right = operands.pop();
+			const left = operands.pop();
+			operands.push({
+				v: phpCmp(left.v, right.v, ">"),
+				c: `phpCmp(${left.c},${right.c},">")`,
+			});
+			break;
+		}
+		case "<=": {
+			if (operands.length < 2) missingOperand(op);
+			const right = operands.pop();
+			const left = operands.pop();
+			operands.push({
+				v: phpCmp(left.v, right.v, "<="),
+				c: `phpCmp(${left.c},${right.c},"<=")`,
+			});
+			break;
+		}
+		case ">=": {
+			if (operands.length < 2) missingOperand(op);
+			const right = operands.pop();
+			const left = operands.pop();
+			operands.push({
+				v: phpCmp(left.v, right.v, ">="),
+				c: `phpCmp(${left.c},${right.c},">=")`,
+			});
+			break;
+		}
+		case "<>": {
+			if (operands.length < 2) missingOperand(op);
+			const right = operands.pop();
+			const left = operands.pop();
+			operands.push({
+				v: phpCmp(left.v, right.v, "<>"),
+				c: `phpCmp(${left.c},${right.c},"<>")`,
+			});
+			break;
+		}
+		case "e": {
+			if (operands.length < 2) missingOperand(op);
+			const right = operands.pop();
+			const left = operands.pop();
+			operands.push({
+				v: phpMul(left.v, phpPow(10, right.v)),
+				c: `phpMul(${left.c},phpPow(10,${right.c}))`,
+			});
+			break;
+		}
+		case "sin": {
+			if (operands.length < 1) missingOperand(op);
+			const arg = operands.pop();
+			operands.push({
+				v: Math.sin(phpAsFloat(arg.v)),
+				c: `Math.sin(phpAsFloat(${arg.c}))`,
+			});
+			break;
+		}
+		case "cos": {
+			if (operands.length < 1) missingOperand(op);
+			const arg = operands.pop();
+			operands.push({
+				v: Math.cos(phpAsFloat(arg.v)),
+				c: `Math.cos(phpAsFloat(${arg.c}))`,
+			});
+			break;
+		}
+		case "tan": {
+			if (operands.length < 1) missingOperand(op);
+			const arg = operands.pop();
+			operands.push({
+				v: Math.tan(phpAsFloat(arg.v)),
+				c: `Math.tan(phpAsFloat(${arg.c}))`,
+			});
+			break;
+		}
+		case "asin": {
+			if (operands.length < 1) missingOperand(op);
+			const arg = operands.pop();
+			operands.push({
+				v: phpAsin(arg.v),
+				c: `phpAsin(${arg.c})`,
+			});
+			break;
+		}
+		case "acos": {
+			if (operands.length < 1) missingOperand(op);
+			const arg = operands.pop();
+			operands.push({
+				v: phpAcos(arg.v),
+				c: `phpAcos(${arg.c})`,
+			});
+			break;
+		}
+		case "atan": {
+			if (operands.length < 1) missingOperand(op);
+			const arg = operands.pop();
+			operands.push({
+				v: Math.atan(phpAsFloat(arg.v)),
+				c: `Math.atan(phpAsFloat(${arg.c}))`,
+			});
+			break;
+		}
+		case "exp": {
+			if (operands.length < 1) missingOperand(op);
+			const arg = operands.pop();
+			operands.push({
+				v: Math.exp(phpAsFloat(arg.v)),
+				c: `Math.exp(phpAsFloat(${arg.c}))`,
+			});
+			break;
+		}
+		case "ln": {
+			if (operands.length < 1) missingOperand(op);
+			const arg = operands.pop();
+			operands.push({
+				v: phpLn(arg.v),
+				c: `phpLn(${arg.c})`,
+			});
+			break;
+		}
+		case "abs": {
+			if (operands.length < 1) missingOperand(op);
+			const arg = operands.pop();
+			operands.push({
+				v: Math.abs(phpAsFloat(arg.v)),
+				c: `Math.abs(phpAsFloat(${arg.c}))`,
+			});
+			break;
+		}
+		case "floor": {
+			if (operands.length < 1) missingOperand(op);
+			const arg = operands.pop();
+			operands.push({
+				v: Math.floor(phpAsFloat(arg.v)),
+				c: `Math.floor(phpAsFloat(${arg.c}))`,
+			});
+			break;
+		}
+		case "trunc": {
+			if (operands.length < 1) missingOperand(op);
+			const arg = operands.pop();
+			operands.push({
+				v: phpToInt(phpAsFloat(arg.v)),
+				c: `phpToInt(phpAsFloat(${arg.c}))`,
+			});
+			break;
+		}
+		case "ceil": {
+			if (operands.length < 1) missingOperand(op);
+			const arg = operands.pop();
+			operands.push({
+				v: Math.ceil(phpAsFloat(arg.v)),
+				c: `Math.ceil(phpAsFloat(${arg.c}))`,
+			});
+			break;
+		}
+		case "^": {
+			if (operands.length < 2) missingOperand(op);
+			const right = operands.pop();
+			const left = operands.pop();
+			operands.push({
+				v: phpPow(left.v, right.v),
+				c: `phpPow(${left.c},${right.c})`,
+			});
+			break;
+		}
+		case "sqrt": {
+			if (operands.length < 1) missingOperand(op);
+			const arg = operands.pop();
+			operands.push({
+				v: phpSqrt(arg.v),
+				c: `phpSqrt(${arg.c})`,
+			});
+			break;
+		}
+		default:
+			throw new Error("Expression error: Unknown error ()");
 	}
 }
 
-function emit(node) {
-	switch (node.type) {
-		case "number":
-			return node.value;
-		case "constant":
-			return node.name === "pi" ? "Math.PI" : "Math.E";
-		case "unary": {
-			const arg = emit(node.arg);
-			switch (node.op) {
-				case "+u":
-					return `(+(${arg}))`;
-				case "-u":
-					return `(-(${arg}))`;
-				case "not":
-					return mwNot(arg);
-				case "sin":
-					return `Math.sin(${arg})`;
-				case "cos":
-					return `Math.cos(${arg})`;
-				case "tan":
-					return `Math.tan(${arg})`;
-				case "asin":
-					return `__mwAsin(${arg})`;
-				case "acos":
-					return `__mwAcos(${arg})`;
-				case "atan":
-					return `Math.atan(${arg})`;
-				case "exp":
-					return `Math.exp(${arg})`;
-				case "ln":
-					return `__mwLn(${arg})`;
-				case "abs":
-					return `Math.abs(${arg})`;
-				case "floor":
-					return `Math.floor(${arg})`;
-				case "ceil":
-					return `Math.ceil(${arg})`;
-				case "trunc":
-					return `__mwTrunc(${arg})`;
-				case "sqrt":
-					return `__mwSqrt(${arg})`;
-				default:
-					throw new Error(`Unsupported unary operator: ${node.op}`);
-			}
+function shuntBinary(op, operators, operands) {
+	let lastOp = operators.length ? operators[operators.length - 1] : null;
+	while (lastOp && PRECEDENCE[op] <= PRECEDENCE[lastOp]) {
+		doOperation(lastOp, operands);
+		operators.pop();
+		lastOp = operators.length ? operators[operators.length - 1] : null;
+	}
+	operators.push(op);
+}
+
+function doExpression(expr) {
+	const operands = [];
+	const operators = [];
+
+	expr = unescapeExpr(expr);
+
+	let p = 0;
+	const end = expr.length;
+	let expecting = "expression";
+	let name = "";
+	let op = null;
+
+	while (p < end) {
+		if (operands.length > MAX_STACK_SIZE || operators.length > MAX_STACK_SIZE) {
+			throw new Error("Expression error: Stack exhausted.");
 		}
-		case "binary": {
-			const left = emit(node.left);
-			const right = emit(node.right);
-			switch (node.op) {
-				case "+":
-					return `((${left}) + (${right}))`;
-				case "-":
-					return `((${left}) - (${right}))`;
-				case "*":
-					return `((${left}) * (${right}))`;
-				case "/":
-				case "div":
-					return mwDiv(left, right);
-				case "^":
-					return `Math.pow((${left}), (${right}))`;
-				case "mod":
-					return mwMod(left, right);
-				case "fmod":
-					return mwFmod(left, right);
-				case "round":
-					return mwRound(left, right);
-				case "=":
-					return mwEq(left, right);
-				case "<>":
-				case "!=":
-					return mwNe(left, right);
-				case "<":
-					return mwLt(left, right);
-				case ">":
-					return mwGt(left, right);
-				case "<=":
-					return mwLe(left, right);
-				case ">=":
-					return mwGe(left, right);
-				case "and":
-					return mwAnd(left, right);
-				case "or":
-					return mwOr(left, right);
+
+		const char = expr[p];
+		const char2 = expr.slice(p, p + 2);
+
+		if (isWhite(char)) {
+			while (p < end && isWhite(expr[p])) p++;
+			continue;
+		} else if (isNumberChar(char)) {
+			if (expecting !== "expression") {
+				throw new Error("Expression error: Unexpected number.");
+			}
+			const start = p;
+			while (p < end && isNumberChar(expr[p])) p++;
+			const num = phpParseNumber(expr.slice(start, p));
+			operands.push({ v: num, c: emitNumber(num) });
+			expecting = "operator";
+			continue;
+		} else if (isAlpha(char)) {
+			const start = p;
+			while (p < end && isAlpha(expr[p])) p++;
+			const word = expr.slice(start, p).toLowerCase();
+			if (!(word in WORDS)) {
+				throw new Error(
+					`Expression error: Unrecognized word "${word}".`,
+				);
+			}
+			op = WORDS[word];
+			switch (op) {
 				case "e":
-					return mwExp10(left, right);
-				default:
-					throw new Error(`Unsupported binary operator: ${node.op}`);
+					if (expecting === "expression") {
+						operands.push({ v: Math.E, c: "Math.E" });
+						expecting = "operator";
+						continue;
+					}
+					break;
+				case "pi":
+					if (expecting !== "expression") {
+						throw new Error("Expression error: Unexpected number.");
+					}
+					operands.push({ v: Math.PI, c: "Math.PI" });
+					expecting = "operator";
+					continue;
+				case "not":
+				case "sin":
+				case "cos":
+				case "tan":
+				case "asin":
+				case "acos":
+				case "atan":
+				case "exp":
+				case "ln":
+				case "abs":
+				case "floor":
+				case "trunc":
+				case "ceil":
+				case "sqrt":
+					if (expecting !== "expression") {
+						throw new Error(
+							`Expression error: Unexpected ${word} operator.`,
+						);
+					}
+					operators.push(op);
+					continue;
 			}
+			name = word;
+		} else if (char2 === "<=") {
+			name = char2;
+			op = "<=";
+			p += 2;
+		} else if (char2 === ">=") {
+			name = char2;
+			op = ">=";
+			p += 2;
+		} else if (char2 === "<>" || char2 === "!=") {
+			name = char2;
+			op = "<>";
+			p += 2;
+		} else if (char === "+") {
+			p += 1;
+			if (expecting === "expression") {
+				operators.push("+u");
+				continue;
+			}
+			op = "+";
+		} else if (char === "-") {
+			p += 1;
+			if (expecting === "expression") {
+				operators.push("-u");
+				continue;
+			}
+			op = "-";
+		} else if (char === "*") {
+			name = char;
+			op = "*";
+			p += 1;
+		} else if (char === "/") {
+			name = char;
+			op = "/";
+			p += 1;
+		} else if (char === "^") {
+			name = char;
+			op = "^";
+			p += 1;
+		} else if (char === "(") {
+			if (expecting === "operator") {
+				throw new Error("Expression error: Unexpected ( operator.");
+			}
+			operators.push("(");
+			p += 1;
+			continue;
+		} else if (char === ")") {
+			let lastOp = operators.length ? operators[operators.length - 1] : null;
+			while (lastOp && lastOp !== "(") {
+				doOperation(lastOp, operands);
+				operators.pop();
+				lastOp = operators.length ? operators[operators.length - 1] : null;
+			}
+			if (lastOp) {
+				operators.pop();
+			} else {
+				throw new Error("Expression error: Unexpected closing bracket.");
+			}
+			expecting = "operator";
+			p += 1;
+			continue;
+		} else if (char === "=") {
+			name = char;
+			op = "=";
+			p += 1;
+		} else if (char === "<") {
+			name = char;
+			op = "<";
+			p += 1;
+		} else if (char === ">") {
+			name = char;
+			op = ">";
+			p += 1;
+		} else {
+			const cp = expr.codePointAt(p);
+			const ch = String.fromCodePoint(cp);
+			throw new Error(
+				`Expression error: Unrecognized punctuation character "${ch}".`,
+			);
 		}
+
+		if (expecting === "expression") {
+			throw new Error(`Expression error: Unexpected ${name} operator.`);
+		}
+		shuntBinary(op, operators, operands);
+		expecting = "expression";
 	}
+
+	while (operators.length) {
+		const top = operators.pop();
+		if (top === "(") {
+			throw new Error("Expression error: Unclosed bracket.");
+		}
+		doOperation(top, operands);
+	}
+
+	if (operands.length === 0) {
+		return { value: "", code: '""' };
+	}
+	const top = operands[0];
+	return { value: normalizeResult(top.v), code: top.c };
 }
 
-function buildHelpers() {
-	return `
-const __mwBool = (x) => x !== 0;
-
-const __mwTrunc = (x) => x < 0 ? Math.ceil(x) : Math.floor(x);
-
-const __mwDiv = (a, b) => {
-  if (b === 0) throw new Error("Division by zero.");
-  return a / b;
-};
-
-const __mwMod = (a, b) => {
-  const left = __mwTrunc(a);
-  const right = __mwTrunc(b);
-  if (right === 0) throw new Error("Division by zero.");
-  return left % right;
-};
-
-const __mwFmod = (a, b) => {
-  if (b === 0) throw new Error("Division by zero.");
-  return a % b;
-};
-
-const __mwLn = (x) => {
-  if (x <= 0) throw new Error("Invalid argument for ln: less than or equal to 0.");
-  return Math.log(x);
-};
-
-const __mwSqrt = (x) => {
-  if (x < 0) throw new Error("In sqrt: Result is not a number.");
-  return Math.sqrt(x);
-};
-
-const __mwAsin = (x) => {
-  if (x < -1 || x > 1) throw new Error("Invalid argument for asin: less than -1 or greater than 1.");
-  return Math.asin(x);
-};
-
-const __mwAcos = (x) => {
-  if (x < -1 || x > 1) throw new Error("Invalid argument for acos: less than -1 or greater than 1.");
-  return Math.acos(x);
-};
-
-const __mwRound = (value, digitsRaw) => {
-  const digits = __mwTrunc(digitsRaw);
-  const factor = Math.pow(10, digits);
-  if (!Number.isFinite(factor) || factor === 0) return value;
-  const scaled = value * factor;
-  if (!Number.isFinite(scaled)) return value;
-  const rounded = scaled < 0 ? -Math.round(Math.abs(scaled)) : Math.round(scaled);
-  const result = rounded / factor;
-  return Number.isFinite(result) ? result : value;
-};
-`.trim();
-}
-
-/**
- * Transpiles MediaWiki #expr syntax into valid JavaScript.
- */
 export function transpileExpr(expr) {
-	const parser = new Parser(expr);
-	const ast = parser.parse();
-	return `(()=>{${buildHelpers()};return ${emit(ast)};})()`;
+	const { code } = doExpression(expr);
+	return `(()=>{ ${runtimeSource()}; ${normalizeResult.toString()}; return normalizeResult(${code}); })()`;
 }
 
-/**
- * Evaluates MediaWiki #expr syntax.
- * @param {string} expr
- * @param {object} [options]
- * @param {boolean} [options.mediawikiErrors=true] If false, returns NaN on error instead
- */
 export function evaluateExpr(expr, { mediawikiErrors = true } = {}) {
 	try {
-		const code = transpileExpr(expr);
-		const result = new Function(`return ${code}`)();
-		return result;
+		return doExpression(expr).value;
 	} catch (e) {
 		if (!mediawikiErrors) {
 			return NaN;
 		}
-		let msg = e.message;
-		if (!msg.startsWith("Expression error:")) {
-			msg = `Expression error: ${msg}`;
-		}
-		return `<strong class="error">${msg}</strong>`;
+		return `<strong class="error">${htmlspecialchars(String(e.message))}</strong>`;
 	}
 }

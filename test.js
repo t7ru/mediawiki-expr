@@ -1,31 +1,51 @@
-import { evaluateExpr } from "./index.js";
+import { evaluateExpr, transpileExpr } from "./index.js";
 
 let hasFailures = false;
 
-function approxEqual(actual, expected, epsilon = 1e-9) {
-	if (Number.isNaN(expected)) return Number.isNaN(actual);
-	if (!Number.isFinite(expected)) return actual === expected;
-	return Math.abs(actual - expected) < epsilon;
+function mwError(message) {
+	return `<strong class="error">${message}</strong>`;
 }
 
-function check(expr, expected, options = {}) {
+function check(expr, expected, options = {}, epsilon = 0) {
 	try {
 		const actual = evaluateExpr(expr, options);
 		if (
 			typeof actual === "string" &&
 			actual.startsWith('<strong class="error">')
 		) {
-			console.error(`[Fail] ${expr} -> expected number but got error`);
+			console.error(`[Fail] ${expr} -> expected value but got error`);
 			console.error(` - Actual: ${actual}\n`);
 			hasFailures = true;
 			return;
 		}
-		if (approxEqual(actual, expected)) {
-			console.log(`[Pass] ${expr} === ${actual}`);
+
+		let pass = false;
+		if (typeof expected === "bigint") {
+			pass = actual === expected;
+		} else if (typeof expected === "string") {
+			pass = actual === expected;
+		} else if (typeof expected === "number") {
+			if (Object.is(actual, expected)) {
+				pass = true;
+			} else if (
+				typeof actual === "number" &&
+				epsilon > 0 &&
+				Number.isFinite(actual) &&
+				Number.isFinite(expected) &&
+				Math.abs(actual - expected) < epsilon
+			) {
+				pass = true;
+			}
+		} else {
+			pass = Object.is(actual, expected);
+		}
+
+		if (pass) {
+			console.log(`[Pass] ${expr} === ${String(actual)}`);
 		} else {
 			console.error(`[Fail] ${expr}`);
-			console.error(` - Expected: ${expected}`);
-			console.error(` - Actual:   ${actual}\n`);
+			console.error(` - Expected: ${String(expected)} (${typeof expected})`);
+			console.error(` - Actual:   ${String(actual)} (${typeof actual})\n`);
 			hasFailures = true;
 		}
 	} catch (error) {
@@ -36,17 +56,26 @@ function check(expr, expected, options = {}) {
 	}
 }
 
-function checkError(expr, expectedErrorSubstring, options = {}) {
+function checkError(expr, expectedError, options = {}) {
 	try {
 		const actual = evaluateExpr(expr, options);
-		if (typeof actual === "string" && actual.includes(expectedErrorSubstring)) {
-			console.log(
-				`[Pass] ${expr} -> error contains "${expectedErrorSubstring}"`,
-			);
+		if (options.mediawikiErrors === false) {
+			if (typeof actual === "number" && Number.isNaN(actual)) {
+				console.log(`[Pass] ${expr} -> NaN`);
+			} else {
+				console.error(`[Fail] ${expr}`);
+				console.error(` - Expected: NaN`);
+				console.error(` - Got: ${actual}\n`);
+				hasFailures = true;
+			}
+			return;
+		}
+		if (actual === expectedError) {
+			console.log(`[Pass] ${expr} -> exact error HTML`);
 		} else {
 			console.error(`[Fail] ${expr}`);
-			console.error(` - Expected error containing: ${expectedErrorSubstring}`);
-			console.error(` - Got: ${actual}\n`);
+			console.error(` - Expected: ${expectedError}`);
+			console.error(` - Got:      ${actual}\n`);
 			hasFailures = true;
 		}
 	} catch (error) {
@@ -56,6 +85,8 @@ function checkError(expr, expectedErrorSubstring, options = {}) {
 		hasFailures = true;
 	}
 }
+
+const LIBM_EPS = 1e-12;
 
 const tests = [
 	// numbers
@@ -63,6 +94,21 @@ const tests = [
 	["123456789.0123456789", 123456789.0123456789],
 	[".5", 0.5],
 	["5.", 5],
+	["010", 10],
+	["008", 8],
+	["00.5", 0.5],
+	["01.20", 1.2],
+	["+01.20", 1.2],
+	[".", 0],
+	["..", 0],
+	["1.2.3", 1.2],
+	["1..2", 1],
+	[".1.2", 0.1],
+
+	// empty
+	["", ""],
+	["()", ""],
+	["   ", ""],
 
 	// unary
 	["+1", 1],
@@ -70,39 +116,45 @@ const tests = [
 	["-12", -12],
 
 	// constants
-	["pi", Math.PI],
-	["e", Math.E],
+	["pi", Math.PI, LIBM_EPS],
+	["e", Math.E, LIBM_EPS],
 
-	// scientific 'e'
+	// e
 	["2e3", 2000],
-	["-2.3e-4", -0.00023],
-	["1e.5", Math.pow(10, 0.5)],
+	["-2.3e-4", -0.00023, 1e-9],
+	["1e.5", Math.pow(10, 0.5), LIBM_EPS],
 
-	// math funcs
-	["exp 43", Math.exp(43)],
-	["ln 2", Math.log(2)],
+	// functions
+	["exp 43", Math.exp(43), LIBM_EPS],
+	["ln 2", Math.log(2), LIBM_EPS],
 	["abs -2", 2],
 	["sqrt 4", 2],
 	["trunc 1.2", 1],
 	["trunc -1.2", -1],
+	["trunc -1.9", -1],
 	["floor 1.2", 1],
 	["floor -1.2", -2],
 	["ceil 1.2", 2],
 	["ceil -1.2", -1],
-	["sin .1", Math.sin(0.1)],
-	["cos .1", Math.cos(0.1)],
-	["tan .1", Math.tan(0.1)],
-	["asin .1", Math.asin(0.1)],
-	["acos .1", Math.acos(0.1)],
-	["atan .1", Math.atan(0.1)],
+	["sin .1", Math.sin(0.1), LIBM_EPS],
+	["cos .1", Math.cos(0.1), LIBM_EPS],
+	["tan .1", Math.tan(0.1), LIBM_EPS],
+	["asin .1", Math.asin(0.1), LIBM_EPS],
+	["acos .1", Math.acos(0.1), LIBM_EPS],
+	["atan .1", Math.atan(0.1), LIBM_EPS],
 
-	// logical
+	// large trunc
+	["trunc 1e20", 7766279631452241920n],
+	["trunc -1e20", -7766279631452241920n],
+	["trunc (2^64)", 0],
+
+	// not
 	["not 0", 1],
 	["not 1", 0],
 	["not 2", 0],
 	["not -1", 0],
 
-	// binary math
+	// arithmetic
 	["2^3", 8],
 	["-2^3", -8],
 	["2*3", 6],
@@ -112,15 +164,25 @@ const tests = [
 	["-30 mod 7", -2],
 	["30.5 mod 7.9", 2],
 	["5.7 fmod 1.3", 5.7 % 1.3],
+	["-7.5 fmod 2.5", -0],
+	["-7.5 fmod -2.5", -0],
+	["10.5 fmod 3.2 fmod 1.1", 0.8999999999999995],
 	["2+3", 5],
 	["3-2", 1],
+	["1e20 mod 3", 2],
+	["-1e20 mod 3", -2],
+	["1e20 mod 7", 6],
 
-	// rounding
+	// round
 	["9.876 round 2", 9.88],
 	["4.5 round 0", 5],
 	["-4.5 round 0", -5],
+	["1.005 round 2", 1.01],
+	["9.995 round 2", 10],
+	["-15 round -1", -20],
+	["1.23 round -400", 0],
 
-	// comparison
+	// compare
 	["3.0 = 3", 1],
 	["3.1 = 3", 0],
 	["3 <> 3", 0],
@@ -130,58 +192,190 @@ const tests = [
 	["4 > 3", 1],
 	["3 <= 4", 1],
 	["4 >= 3", 1],
+	["2&lt;3", 1],
+	["5&gt;4", 1],
 
 	// and / or
 	["3 and 4", 1],
 	["0 and 4", 0],
+	["1 and 0", 0],
 	["3 or 4", 1],
 	["0 or 0", 0],
 
-	// precedence and grouping
+	// precedence
 	["2+3*4", 14],
 	["1.234 round 2 - 1", 1.2], // +,- > round  -> 1.234 round (2-1) = 1.234 round 1 = 1.2
 	["1 and 2=1", 0], // = > and
 	["1 or 1 and 0", 1], // and > or
 	["(2+3)*4", 20],
 	["-not-not-not0", -1], // not 0 = 1, not 1 = 0, not 0 = 1, -1
-	["sin ln 1.1", Math.sin(Math.log(1.1))],
+	["sin ln 1.1", Math.sin(Math.log(1.1)), LIBM_EPS],
 	["3 * 4 mod 10 * 10", 20], // ltr 3*4=12, 12 mod 10=2, 2*10=20
 ];
 
 console.log("-> Success tests (mediawikiErrors = true by default)");
-for (const [expr, expected] of tests) {
-	check(expr, expected);
+for (const row of tests) {
+	const [expr, expected, epsilon = 0] = row;
+	check(expr, expected, {}, epsilon);
 }
 
-// error tests
+// PHP trunc(2^63) overflows to -2^63, which JS represents exactly
+// thus, accept either the number or the bigint
+{
+	const expr = "trunc (2^63)";
+	try {
+		const actual = evaluateExpr(expr);
+		const pass =
+			Object.is(actual, -9223372036854775808) ||
+			actual === -9223372036854775808n;
+		if (pass) {
+			console.log(`[Pass] ${expr} === ${String(actual)}`);
+		} else {
+			console.error(`[Fail] ${expr}`);
+			console.error(
+				` - Expected: -9223372036854775808 or -9223372036854775808n`,
+			);
+			console.error(` - Actual:   ${String(actual)} (${typeof actual})\n`);
+			hasFailures = true;
+		}
+	} catch (error) {
+		console.error(
+			`[Fail] ${expr} threw unexpected JS error: ${error.message}\n`,
+		);
+		hasFailures = true;
+	}
+}
+
+// errors
 console.log(
 	'\n-> Error tests (should return MediaWiki <strong class="error">...)',
 );
-checkError("1/0", "Division by zero.");
-checkError("5 mod 0", "Division by zero.");
-checkError("5 fmod 0", "Division by zero.");
-checkError("ln 0", "Invalid argument for ln: less than or equal to 0.");
-checkError("ln -1", "Invalid argument for ln: less than or equal to 0.");
-checkError("sqrt -1", "In sqrt: Result is not a number.");
+
+checkError("1/0", mwError("Division by zero."));
+checkError("5 mod 0", mwError("Division by zero."));
+checkError("5 fmod 0", mwError("Division by zero."));
+checkError(
+	"ln 0",
+	mwError("Invalid argument for ln: less than or equal to 0."),
+);
+checkError(
+	"ln -1",
+	mwError("Invalid argument for ln: less than or equal to 0."),
+);
+checkError("sqrt -1", mwError("In sqrt: Result is not a number."));
+checkError("sqrt ((-1)^0.5)", mwError("In sqrt: Result is not a number."));
 checkError(
 	"asin 2",
-	"Invalid argument for asin: less than -1 or greater than 1.",
+	mwError("Invalid argument for asin: less than -1 or greater than 1."),
 );
 checkError(
 	"acos 2",
-	"Invalid argument for acos: less than -1 or greater than 1.",
+	mwError("Invalid argument for acos: less than -1 or greater than 1."),
 );
-checkError("foo", 'Unrecognized word "foo"');
-checkError("1 + , 2", 'Unrecognized punctuation character ","');
-checkError("(2+3", "Unclosed bracket");
-checkError("2+3)", 'Unexpected token ")"');
 
-// NaN mode
+checkError(
+	"foo",
+	mwError("Expression error: Unrecognized word &quot;foo&quot;."),
+);
+checkError(
+	"FOO",
+	mwError("Expression error: Unrecognized word &quot;foo&quot;."),
+);
+checkError(
+	"1 + , 2",
+	mwError("Expression error: Unrecognized punctuation character &quot;,&quot;."),
+);
+checkError("1\f2", mwError("Expression error: Unrecognized punctuation character &quot;\f&quot;."));
+checkError("(2+3", mwError("Expression error: Unclosed bracket."));
+checkError("(", mwError("Expression error: Unclosed bracket."));
+checkError("2+3)", mwError("Expression error: Unexpected closing bracket."));
+checkError(")", mwError("Expression error: Unexpected closing bracket."));
+checkError("e4", mwError("Expression error: Unexpected number."));
+checkError("4e", mwError("Expression error: Missing operand for e."));
+checkError("1+", mwError("Expression error: Missing operand for +."));
+check("not ".repeat(100) + "0", 0);
+checkError(
+	"not ".repeat(101) + "0",
+	mwError("Expression error: Stack exhausted."),
+);
+checkError(
+	"not ".repeat(120) + "0",
+	mwError("Expression error: Stack exhausted."),
+);
+
+// and/or evaluate both sides
+checkError("1 or (1/0)", mwError("Division by zero."));
+checkError("0 and (1/0)", mwError("Division by zero."));
+checkError("1 and (1/0)", mwError("Division by zero."));
+
+// nan
 console.log("\n-> NaN tests (mediawikiErrors = false)");
-check("1/0", NaN, { mediawikiErrors: false });
-check("ln 0", NaN, { mediawikiErrors: false });
-check("sqrt -1", NaN, { mediawikiErrors: false });
-check("foo", NaN, { mediawikiErrors: false });
+checkError("1/0", NaN, { mediawikiErrors: false });
+checkError("ln 0", NaN, { mediawikiErrors: false });
+checkError("sqrt -1", NaN, { mediawikiErrors: false });
+checkError("foo", NaN, { mediawikiErrors: false });
+
+// empty stays ""
+check("", "", { mediawikiErrors: false });
+check("()", "", { mediawikiErrors: false });
+check("   ", "", { mediawikiErrors: false });
+
+// transpile
+console.log("\n-> transpileExpr tests");
+try {
+	const code = transpileExpr("1 + 2 * 3");
+	if (typeof code === "string") {
+		console.log(`[Pass] transpileExpr("1 + 2 * 3") returns string`);
+	} else {
+		console.error(`[Fail] transpileExpr("1 + 2 * 3") did not return a string`);
+		hasFailures = true;
+	}
+} catch (error) {
+	console.error(
+		`[Fail] transpileExpr("1 + 2 * 3") threw: ${error.message}\n`,
+	);
+	hasFailures = true;
+}
+
+try {
+	const t = transpileExpr("1+2");
+	const viaFn = new Function("return " + t)();
+	const viaEval = evaluateExpr("1+2");
+	if (Object.is(viaFn, viaEval)) {
+		console.log(`[Pass] new Function(transpileExpr("1+2")) === evaluateExpr("1+2")`);
+	} else {
+		console.error(`[Fail] transpile/evaluate mismatch for "1+2"`);
+		console.error(` - transpile+Function: ${viaFn}`);
+		console.error(` - evaluateExpr:       ${viaEval}\n`);
+		hasFailures = true;
+	}
+} catch (error) {
+	console.error(
+		`[Fail] transpileExpr("1+2") / Function path threw: ${error.message}\n`,
+	);
+	hasFailures = true;
+}
+
+try {
+	const t = transpileExpr("trunc 1.2");
+	const viaFn = new Function("return " + t)();
+	const viaEval = evaluateExpr("trunc 1.2");
+	if (Object.is(viaFn, viaEval) || viaFn === viaEval) {
+		console.log(
+			`[Pass] new Function(transpileExpr("trunc 1.2")) === evaluateExpr("trunc 1.2")`,
+		);
+	} else {
+		console.error(`[Fail] transpile/evaluate mismatch for "trunc 1.2"`);
+		console.error(` - transpile+Function: ${viaFn}`);
+		console.error(` - evaluateExpr:       ${viaEval}\n`);
+		hasFailures = true;
+	}
+} catch (error) {
+	console.error(
+		`[Fail] transpileExpr("trunc 1.2") / Function path threw: ${error.message}\n`,
+	);
+	hasFailures = true;
+}
 
 if (hasFailures) {
 	console.error("\nSome tests failed!");
