@@ -327,6 +327,10 @@ const embeddedRound = new Function(
 )();
 assertSame(embeddedRound, 1.01, "runtimeSource phpRound");
 
+const shaken = runtimeSource("phpRound(1, 2)");
+assertSame(shaken.includes("function clampRoundPlaces("), true, "runtimeSource pulls transitive deps");
+assertSame(shaken.includes("function phpAdd("), false, "runtimeSource drops unused helpers");
+
 if (failed) {
 	console.error(`${passed} passed, ${failed} failed`);
 	process.exit(1);

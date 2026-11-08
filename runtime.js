@@ -227,8 +227,8 @@ export function phpCmp(a, b, op) {
 	}
 }
 
-export function runtimeSource() {
-	return [
+const HELPERS = new Map(
+	[
 		phpParseNumber,
 		phpToInt,
 		phpAsFloat,
@@ -251,5 +251,28 @@ export function runtimeSource() {
 		phpAcos,
 		phpSqrt,
 		phpCmp,
-	].map((fn) => fn.toString()).join("\n");
+	].map((fn) => [fn.name, fn.toString()]),
+);
+
+// textual match meaning helpers must call each other by plain name
+function helperRefs(src) {
+	const refs = new Set();
+	for (const [id] of src.matchAll(/\b[A-Za-z_$][\w$]*/g)) {
+		if (HELPERS.has(id)) refs.add(id);
+	}
+	return refs;
+}
+
+const DEPS = new Map([...HELPERS].map(([name, src]) => [name, helperRefs(src)]));
+
+export function runtimeSource(code) {
+	if (code === undefined) return [...HELPERS.values()].join("\n");
+	const used = new Set();
+	const visit = (name) => {
+		if (used.has(name)) return;
+		used.add(name);
+		DEPS.get(name).forEach(visit);
+	};
+	helperRefs(code).forEach(visit);
+	return [...HELPERS].filter(([n]) => used.has(n)).map(([, s]) => s).join("\n");
 }

@@ -293,13 +293,17 @@ function doExpression(expr, codes) {
 	return normalizeResult(vals[0]);
 }
 
-let prelude;
-
 export function transpileExpr(expr) {
 	const codes = [];
 	doExpression(expr, codes);
-	prelude ??= `${runtimeSource()}; ${normalizeResult.toString()};`;
-	return `(()=>{ ${prelude} return normalizeResult(${codes.length ? codes[0] : '""'}); })()`;
+	const code = codes.length ? codes[0] : '""';
+	const runtime = runtimeSource(code);
+	// only phpToInt makes bigints
+	// without it there's nothing to normalize
+	if (!runtime.includes("function phpToInt(")) {
+		return `(()=>{ ${runtime} return ${code}; })()`;
+	}
+	return `(()=>{ ${runtime} ${normalizeResult.toString()} return normalizeResult(${code}); })()`;
 }
 
 export function evaluateExpr(expr, { mediawikiErrors = true } = {}) {

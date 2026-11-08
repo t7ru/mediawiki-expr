@@ -15,7 +15,7 @@ import { transpileExpr, evaluateExpr } from "mediawiki-expr";
 
 // Transpile to JavaScript
 const jsCode = transpileExpr("1 + 2 * 3");
-console.log(jsCode); // (()=>{...;return normalizeResult(phpAdd(1,phpMul(2,3)));})()
+console.log(jsCode); // (()=>{ function phpAsFloat(v) {...} ... return phpAdd(1,phpMul(2,3)); })()
 
 // Evaluate
 const result = evaluateExpr("3.14159 round 2");
@@ -32,7 +32,7 @@ console.log(value); // 8.389056098930649
 
 - `expr` (string) - A MediaWiki `#expr` expression, e.g. `"1 + 2 * 3"`
 
-Returns a string of JavaScript code that evaluates the expression.
+Returns a string of self-contained JavaScript code that evaluates the expression. Only the runtime helpers the expression needs are inlined.
 
 ### `evaluateExpr(expr: string, options?: { mediawikiErrors?: boolean }): number | bigint | string`
 
