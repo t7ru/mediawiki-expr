@@ -227,12 +227,115 @@ export function phpCmp(a, b, op) {
 	}
 }
 
+const POW5 = [1n];
+const FLOAT_BUF = new DataView(new ArrayBuffer(8));
+
+function decimalOf(abs) {
+	FLOAT_BUF.setFloat64(0, abs);
+	const bits = FLOAT_BUF.getBigUint64(0);
+	const biased = Number((bits >> 52n) & 0x7ffn);
+	const frac = bits & 0xfffffffffffffn;
+	let mant;
+	let exp2;
+	if (biased === 0) {
+		mant = frac;
+		exp2 = -1074;
+	} else {
+		mant = (1n << 52n) | frac;
+		exp2 = biased - 1075;
+	}
+	if (exp2 >= 0) {
+		const digits = (mant << BigInt(exp2)).toString();
+		return [digits, digits.length];
+	}
+	const k = -exp2;
+	let v = POW5[POW5.length - 1];
+	for (let n = POW5.length; n <= k; n++) {
+		v *= 5n;
+		POW5[n] = v;
+	}
+	const digits = (mant * POW5[k]).toString();
+	return [digits, digits.length - k];
+}
+
+function trimZeros(digits) {
+	let end = digits.length;
+	while (end > 1 && digits[end - 1] === "0") end--;
+	return end === digits.length ? digits : digits.slice(0, end);
+}
+
+function roundTiesEven(digits, decpt, ndigit) {
+	// php's (string) cast rounds a trailing 5 to even
+	if (digits.length <= ndigit) return [trimZeros(digits), decpt];
+	const cut = digits[ndigit];
+	let keep = digits.slice(0, ndigit);
+	let up = cut > "5";
+	if (cut === "5") {
+		let i = ndigit + 1;
+		while (i < digits.length && digits[i] === "0") i++;
+		up = i < digits.length || (keep.charCodeAt(ndigit - 1) & 1) === 1;
+	}
+	if (up) {
+		const chars = keep.split("");
+		let i = ndigit - 1;
+		for (; i >= 0 && chars[i] === "9"; i--) chars[i] = "0";
+		if (i < 0) return ["1", decpt + 1];
+		chars[i] = String.fromCharCode(chars[i].charCodeAt(0) + 1);
+		keep = chars.join("");
+	}
+	return [trimZeros(keep), decpt];
+}
+
+function shortestRoundTrip(abs, digits, decpt) {
+	const limit = Math.min(17, digits.length);
+	for (let n = 1; n < limit; n++) {
+		const rounded = roundTiesEven(digits, decpt, n);
+		const [d, p] = rounded;
+		if (Number(`${d}e${p - d.length}`) === abs) return rounded;
+	}
+	return roundTiesEven(digits, decpt, limit);
+}
+
+export function formatExpr(value, precision = 14) {
+	if (value === "") return "";
+	if (typeof value === "bigint") return value.toString();
+	if (typeof value !== "number") {
+		throw new Error("formatExpr expects a number, bigint, or an empty string.");
+	}
+	if (Number.isNaN(value)) return "NAN";
+	if (!Number.isFinite(value)) return value > 0 ? "INF" : "-INF";
+	if (value === 0) return Object.is(value, -0) ? "-0" : "0";
+
+	const neg = value < 0;
+	const abs = neg ? -value : value;
+	const [rawDigits, rawDecpt] = decimalOf(abs);
+	// precision 0 counts as 1 digit
+	// when below 0, php's shortest form cuts off at 17
+	const cutoff = precision < 0 ? 17 : precision > 0 ? precision : 1;
+	const [digits, decpt] = precision < 0
+		? shortestRoundTrip(abs, rawDigits, rawDecpt)
+		: roundTiesEven(rawDigits, rawDecpt, cutoff);
+	let out;
+	// decpt < -3 is php's cutoff below 1e-4
+	if ((decpt >= 0 && decpt > cutoff) || decpt < -3) {
+		const exp = decpt - 1;
+		const expNeg = exp < 0;
+		out = `${digits[0]}.${digits.length > 1 ? digits.slice(1) : "0"}E${expNeg ? "-" : "+"}${expNeg ? -exp : exp}`;
+	} else if (decpt < 0) {
+		out = `0.${"0".repeat(-decpt)}${digits}`;
+	} else if (digits.length > decpt) {
+		out = `${digits.slice(0, decpt) || "0"}.${digits.slice(decpt)}`;
+	} else {
+		out = digits + "0".repeat(decpt - digits.length);
+	}
+	return neg ? `-${out}` : out;
+}
+
 function normalizeResult(v) {
-	return typeof v === "bigint" &&
-		v >= -9007199254740991n &&
-		v <= 9007199254740991n
-		? Number(v)
-		: v;
+	// a php int past 14 digits prints in full
+	// unlike the same float
+	const limit = 10n ** 14n;
+	return typeof v === "bigint" && v > -limit && v < limit ? Number(v) : v;
 }
 
 const MAX_STACK_SIZE = 100;

@@ -15,6 +15,7 @@ import {
 	phpPow,
 	phpNeg,
 	phpCmp,
+	formatExpr,
 } from "./index.js";
 
 let passed = 0;
@@ -128,6 +129,23 @@ $out["float_empty"] = enc((float)"");
 $out["float_00_5"] = enc((float)"00.5");
 $out["float_5dot"] = enc((float)"5.");
 $out["float_dot5"] = enc((float)".5");
+ini_set("precision", "2");
+$out["fmt_1_25"] = enc((string)1.25);
+$out["fmt_1_35"] = enc((string)1.35);
+$out["fmt_m1_25"] = enc((string)-1.25);
+ini_set("precision", "1");
+$out["fmt_9_5"] = enc((string)9.5);
+ini_set("precision", "14");
+$out["fmt_sum"] = enc((string)(0.1 + 0.2));
+$out["fmt_1em5"] = enc((string)1e-5);
+$out["fmt_m0"] = enc((string)(-0.0));
+$out["fmt_int_1e14"] = enc((string)(int)1e14);
+$out["fmt_float_1e14"] = enc((string)1e14);
+ini_set("precision", "0");
+$out["fmt_p0"] = enc((string)1.25);
+ini_set("precision", "-1");
+$out["fmt_m1"] = enc((string)1.25);
+$out["fmt_m1_pi"] = enc((string)M_PI);
 echo json_encode($out, JSON_UNESCAPED_SLASHES);
 `;
 
@@ -316,6 +334,20 @@ assertSame(phpCmp(NaN, NaN, "<>"), 1, "cmp NaN<>NaN");
 assertSame(phpCmp(NaN, 1, "<"), 0, "cmp NaN<1");
 assertSame(phpCmp(NaN, 1, "<="), 0, "cmp NaN<=1");
 assertSame(phpCmp(1, NaN, ">="), 0, "cmp 1>=NaN");
+
+// format
+assertSame(formatExpr(1.25, 2), fromPhp(phpOut.fmt_1_25), "format 1.25");
+assertSame(formatExpr(1.35, 2), fromPhp(phpOut.fmt_1_35), "format 1.35");
+assertSame(formatExpr(-1.25, 2), fromPhp(phpOut.fmt_m1_25), "format -1.25");
+assertSame(formatExpr(9.5, 1), fromPhp(phpOut.fmt_9_5), "format 9.5");
+assertSame(formatExpr(0.1 + 0.2), fromPhp(phpOut.fmt_sum), "format 0.1+0.2");
+assertSame(formatExpr(1e-5), fromPhp(phpOut.fmt_1em5), "format 1e-5");
+assertSame(formatExpr(-0), fromPhp(phpOut.fmt_m0), "format -0");
+assertSame(formatExpr(100000000000000n), fromPhp(phpOut.fmt_int_1e14), "format int 1e14");
+assertSame(formatExpr(1e14), fromPhp(phpOut.fmt_float_1e14), "format float 1e14");
+assertSame(formatExpr(1.25, 0), fromPhp(phpOut.fmt_p0), "format prec 0");
+assertSame(formatExpr(1.25, -1), fromPhp(phpOut.fmt_m1), "format prec -1");
+assertSame(formatExpr(Math.PI, -1), fromPhp(phpOut.fmt_m1_pi), "format pi -1");
 
 if (failed) {
 	console.error(`${passed} passed, ${failed} failed`);

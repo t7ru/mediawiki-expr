@@ -15,8 +15,8 @@ export interface EvaluateOptions {
 
 /**
  * Success is a JS `number` (including `-0`, `NaN`, `Infinity`)
- * or a `bigint` when the PHP int is outside the JS safe-integer range
- * (e.g. `trunc 1e20` -> `7766279631452241920n`),
+ * or a `bigint` when the PHP int has more than 14 digits
+ * (e.g. `trunc 1e14` -> `100000000000000n`),
  * or `""` for an empty operand stack.
  *
  * Errors are HTML when `mediawikiErrors` is true, otherwise `NaN`.
@@ -25,3 +25,13 @@ export declare function evaluateExpr(
 	expr: string,
 	options?: EvaluateOptions,
 ): number | bigint | string;
+
+/**
+ * Formats a value returned by `evaluateExpr`.
+ * This mimics `#expr` formatting in MediaWiki,
+ * where it uses PHP's `precision` directive (default 14).
+ */
+export declare function formatExpr(
+	value: number | bigint | "",
+	precision?: number,
+): string;

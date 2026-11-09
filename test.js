@@ -1,4 +1,4 @@
-import { evaluateExpr } from "./index.js";
+import { evaluateExpr, formatExpr } from "./index.js";
 
 let hasFailures = false;
 
@@ -145,6 +145,9 @@ const tests = [
 	["atan .1", Math.atan(0.1), LIBM_EPS],
 
 	// large trunc
+	["trunc 1e13", 10000000000000],
+	["trunc 1e14", 100000000000000n],
+	["trunc -1e14", -100000000000000n],
 	["trunc 1e20", 7766279631452241920n],
 	["trunc -1e20", -7766279631452241920n],
 	["trunc (2^64)", 0],
@@ -335,6 +338,72 @@ for (const [expr, options, expected] of [
 		console.error(`[Fail] ${expr} onError`);
 		console.error(` - Expected: ${JSON.stringify(expected)}`);
 		console.error(` - Got:      ${JSON.stringify(messages)}\n`);
+		hasFailures = true;
+	}
+}
+
+// format
+const formatted = [
+	["-2.3e-4", "-0.00023"],
+	["0.1+0.2", "0.3"],
+	["6/7", "0.85714285714286"],
+	["1+5e-14", "1"],
+	["(1+5e-14)-1", "4.9960036108132E-14"],
+	["2^53", "9.007199254741E+15"],
+	["trunc (2^53)", "9007199254740992"],
+	["1501^5", "7.6190962725075E+15"],
+	["1e20", "1.0E+20"],
+	["trunc 1e20", "7766279631452241920"],
+	["1e-4", "0.0001"],
+	["1e-5", "1.0E-5"],
+	["1e14", "1.0E+14"],
+	["trunc 1e14", "100000000000000"],
+	["trunc -1e14", "-100000000000000"],
+	["1e15", "1.0E+15"],
+	["trunc 1e15", "1000000000000000"],
+	["trunc 9007199254740991", "9007199254740991"],
+	["-0", "-0"],
+	["0", "0"],
+	["-7.5 fmod 2.5", "-0"],
+	["10.5 fmod 3.2 fmod 1.1", "0.9"],
+	["0^-1", "INF"],
+	["(-2)^0.5", "NAN"],
+	["cos .1", "0.99500416527803"],
+	["pi", "3.1415926535898"],
+	["2^63", "9.2233720368548E+18"],
+	["trunc (2^63)", "-9223372036854775808"],
+	["", ""],
+	["()", ""],
+];
+for (const [expr, text] of formatted) {
+	const actual = formatExpr(evaluateExpr(expr));
+	if (actual === text) console.log(`[Pass] format ${expr} === ${text}`);
+	else {
+		console.error(`[Fail] format ${expr}`);
+		console.error(` - Expected: ${text}`);
+		console.error(` - Got:      ${actual}\n`);
+		hasFailures = true;
+	}
+}
+for (const [value, precision, text] of [
+	[NaN, 14, "NAN"],
+	[Infinity, 14, "INF"],
+	[-Infinity, 14, "-INF"],
+	[1.25, 2, "1.2"],
+	[1.35, 2, "1.4"],
+	[9.5, 1, "1.0E+1"],
+	[1.25, 0, "1"],
+	[9.5, 0, "1.0E+1"],
+	[1.25, -1, "1.25"],
+	[1e-5, -1, "1.0E-5"],
+	[-1.25, 2, "-1.2"],
+]) {
+	const actual = formatExpr(value, precision);
+	if (actual === text) console.log(`[Pass] format ${value} precision ${precision} === ${text}`);
+	else {
+		console.error(`[Fail] format ${value} precision ${precision}`);
+		console.error(` - Expected: ${text}`);
+		console.error(` - Got:      ${actual}\n`);
 		hasFailures = true;
 	}
 }

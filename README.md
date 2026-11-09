@@ -1,6 +1,6 @@
 # mediawiki-expr
 
-Evaluate MediaWiki `#expr` syntax in JavaScript.
+Evaluate MediaWiki's ParserFunctions `#expr` syntax in JavaScript.
 
 ## Install
 
@@ -11,15 +11,20 @@ npm i mediawiki-expr
 ## Usage
 
 ```js
-import { evaluateExpr } from "mediawiki-expr";
+import { evaluateExpr, formatExpr } from "mediawiki-expr";
 
-// Evaluate
 const result = evaluateExpr("3.14159 round 2");
 console.log(result); // 3.14
 
-// For the more 'nuanced' expression
 const value = evaluateExpr("sin(pi / 2) + e ^ 2");
 console.log(value); // 8.389056098930649
+
+// Format to a specific PHP precision
+// Most MediaWiki instances will use 14
+// Which is also our default precision
+const raw = evaluateExpr("-2.3e-4");
+console.log(raw); // -0.00022999999999999998
+console.log(formatExpr(raw)); // -0.00023
 ```
 
 ## API
@@ -34,8 +39,18 @@ console.log(value); // 8.389056098930649
 Returns:
 
 - `""`, `()`, and whitespace return `""`.
-- A PHP int outside the safe-integer range returns a `bigint` (`trunc 1e20` -> `7766279631452241920n`).
+- A PHP int with more than 14 digits returns a `bigint` (`trunc 1e14` -> `100000000000000n`).
 - Other successes return a `number`, including `-0`, `NaN`, and `Infinity`.
+
+### `formatExpr(value: number | bigint | "", precision?: number): string`
+
+- `value` (number | bigint | "") - An `evaluateExpr` success
+- `precision` (number, optional) - Significant digits. Default `14`.
+
+Returns:
+
+- `""` returns `""`, while a `bigint` returns every digit.
+- `-0` returns `"-0"`, `NaN` returns `"NAN"`, and infinities return `"INF"` and `"-INF"`.
 
 ## Notes
 
